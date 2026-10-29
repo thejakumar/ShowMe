@@ -1,0 +1,18 @@
+{
+  "_how_to": "Copy to eval/cases.json. Put photos in eval/photos/. Write the expected answers BEFORE running. manual_id comes from the app (Team passport URL or /api/manuals); or use \"sample\": true for the sample stool.",
+  "manual_id": "",
+  "sample": true,
+  "inventory": [
+    {"photo": "photos/inventory_1.jpg", "counts": {"A": 1, "B": 2, "C": 1, "D": 8, "E": 8, "F": 1}},
+    {"photo": "photos/inventory_2_one_screw_hidden.jpg", "counts": {"A": 1, "B": 2, "C": 1, "D": 8, "E": 7, "F": 1}}
+  ],
+  "checks": [
+    {"photo": "photos/step3_correct.jpg", "step": 3, "expected": "pass"},
+    {"photo": "photos/step3_panel_backwards.jpg", "step": 3, "expected": "fail"},
+    {"photo": "photos/step4_correct.jpg", "step": 4, "expected": "pass"},
+    {"photo": "photos/step4_seat_upside_down.jpg", "step": 4, "expected": "fail"}
+  ],
+  "car": [
+    {"photo": "photos/engine_bay_1.jpg", "manual_id": "", "expected": ["Engine oil dipstick", "Coolant reservoir", "Washer fluid reservoir"]}
+  ]
+}
