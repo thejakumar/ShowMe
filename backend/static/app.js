@@ -6,6 +6,7 @@ import { playLesson } from "./lesson.js";
 import { liveSupported, startLive } from "./live.js";
 import { createViewer, webxrARSupported } from "./viewer3d.js";
 import { dictate, listen, voiceSupported } from "./voice.js";
+import { parseGuideCode, readPhoto, startScanner } from "./scan.js";
 
 const view = document.getElementById("view");
 const cameraInput = document.getElementById("camera");
@@ -137,7 +138,7 @@ document.querySelectorAll(".privacy button").forEach((b) => b.addEventListener("
 
 const routes = {
   "": home, assemble, session: sessionView, car: carView, learn: learnView, team: teamView,
-  device: deviceView, pack: packView, brand: brandView,
+  device: deviceView, pack: packView, brand: brandView, scan: scanView,
 };
 
 async function render() {
@@ -167,6 +168,7 @@ const ICONS = {
   car: `<svg viewBox="0 0 64 64"><path d="M8 40l6-14h36l6 14v10H8z"/><circle cx="18" cy="50" r="5"/><circle cx="46" cy="50" r="5"/><path d="M20 26l4-8h16l4 8"/></svg>`,
   orbit: `<svg viewBox="0 0 64 64"><ellipse cx="32" cy="34" rx="26" ry="11"/><circle cx="32" cy="34" r="7"/><circle cx="54" cy="30" r="4"/></svg>`,
   device: `<svg viewBox="0 0 64 64"><rect x="16" y="6" width="32" height="52" rx="5"/><circle class="accent" cx="32" cy="22" r="7"/><path d="M24 38h16M24 45h16"/><circle cx="32" cy="52" r="1.5"/></svg>`,
+  scan: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 20V8h12M44 8h12v12M56 44v12H44M20 56H8V44"/><rect class="accent" x="20" y="20" width="9" height="9"/><rect x="35" y="20" width="9" height="9"/><rect x="20" y="35" width="9" height="9"/><path d="M35 35h9v9"/></svg>`,
   qr: `<svg viewBox="0 0 64 64"><rect x="8" y="8" width="18" height="18"/><rect x="38" y="8" width="18" height="18"/><rect x="8" y="38" width="18" height="18"/><rect class="accent" x="14" y="14" width="6" height="6"/><path d="M38 38h6v6h-6zM50 38h6M38 50h6M50 50h6v6M44 44h6v6"/></svg>`,
   team: `<svg viewBox="0 0 64 64"><rect x="10" y="10" width="44" height="44" rx="4"/><path d="M18 24h28M18 34h28M18 44h16"/><path d="M42 42l4 4 8-9"/></svg>`,
 };
@@ -175,6 +177,7 @@ async function home() {
   view.innerHTML = `
     <h1>Every product comes with an expert.</h1>
     <p class="lede">Point your phone at the real thing. ShowMe reads the manual, finds each part, and checks every step you do.</p>
+    <a class="scan-cta" href="#/scan">${ICONS.scan}<span><strong>Scan the code on the box</strong><span class="small muted">Opens the product's guide. No manual to find.</span></span><span class="go" aria-hidden="true">›</span></a>
     <ul class="uses">
       <li class="lead"><a href="#/assemble">${ICONS.stool}<div><h3>Assemble something</h3><p>Flat-pack furniture from a pile of loose parts to finished, with every part counted and every step checked.</p></div><span class="go" aria-hidden="true">›</span></a></li>
       <li><a href="#/assemble?use=training">${ICONS.machine}<div><h3>Train on a machine</h3><p>Learn a work machine from its manual: what every control does, any procedure on request, each step checked and logged on your skill passport.</p></div><span class="go" aria-hidden="true">›</span></a></li>
@@ -1328,6 +1331,80 @@ async function printLabel(code) {
       <div class="row no-print"><button class="btn primary" id="print" type="button">Print</button><a class="btn" href="#/brand/${p.code}">Back</a></div>
     </div>`;
   $("#print").addEventListener("click", () => window.print());
+}
+
+
+// ---------------------------------------------------------------- scan a ShowMe code on a box
+
+async function scanView() {
+  view.innerHTML = `
+    <a class="back" href="#/">Home</a>
+    <div class="stack">
+      <h2>Scan the code on the box</h2>
+      <p class="muted" id="scan-hint">${liveSupported() ? "Point the camera at the ShowMe QR code. It opens by itself." : "Take a photo of the ShowMe QR code."}</p>
+      <div id="scan-area"></div>
+      <p id="scan-result" aria-live="polite"></p>
+      <form class="stack" id="code-form">
+        <div class="field"><label for="code">Or type the code printed under it</label>
+          <div class="ask-row"><input id="code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="6SC5B8" inputmode="text"><button class="btn primary" type="submit">Open</button></div>
+        </div>
+      </form>
+    </div>`;
+  const area = $("#scan-area"), result = $("#scan-result");
+  let scanner = null;
+  app.cleanup.push(() => scanner?.stop());
+
+  const open = (code) => {
+    scanner?.stop();
+    speak("Found it. Opening the guide.");
+    location.hash = `#/pack/${code}`;
+  };
+  const handle = (text) => {
+    const code = parseGuideCode(text);
+    if (code) { open(code); return true; }
+    result.className = "verdict unsure";
+    result.innerHTML = `That QR code isn't a ShowMe guide. It says: <span class="mono">${esc(String(text).slice(0, 140))}</span>`;
+    return false;
+  };
+  const photoButton = (label) => {
+    const b = snapButton(async () => {
+      const file = await takePhoto();
+      if (!file) return;
+      result.className = "";
+      result.textContent = "Reading the code…";
+      try {
+        const text = await readPhoto(file);
+        if (!text) { result.className = "verdict unsure"; result.textContent = "No QR code found in that photo. Fill the frame with the code and try again, or type the code below."; return; }
+        handle(text);
+      } catch (e) { result.className = "verdict unsure"; result.textContent = e.message; }
+    }, label);
+    return b;
+  };
+
+  if (liveSupported()) {
+    try {
+      scanner = await startScanner(area, { onText: handle });
+      const alt = document.createElement("button");
+      alt.type = "button";
+      alt.className = "btn quiet";
+      alt.textContent = "Use a photo instead";
+      alt.addEventListener("click", () => { scanner?.stop(); area.innerHTML = ""; area.append(photoButton("Take a photo of the code")); });
+      area.append(alt);
+    } catch (e) {
+      area.innerHTML = "";
+      $("#scan-hint").textContent = `The camera didn't start (${e.message}). Take a photo of the code instead.`;
+      area.append(photoButton("Take a photo of the code"));
+    }
+  } else {
+    area.append(photoButton("Take a photo of the code"));
+  }
+
+  $("#code-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = parseGuideCode($("#code").value);
+    if (code) open(code);
+    else { result.className = "verdict unsure"; result.textContent = "That doesn't look like a ShowMe code. It's six letters and numbers, like 6SC5B8."; }
+  });
 }
 
 // ---------------------------------------------------------------- start

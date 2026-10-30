@@ -423,3 +423,20 @@ ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(-
   body { background: #fff; }
   main { padding: 0; }
 }
+
+/* ---------- scan a ShowMe code */
+.scan-cta { display: flex; align-items: center; gap: 14px; margin-top: 20px; padding: 14px 16px; border: 1.5px solid var(--hivis-ink);
+  border-radius: var(--radius-m); background: var(--hivis); color: var(--hivis-ink); text-decoration: none; }
+.scan-cta svg { width: 44px; height: 44px; flex: none; stroke: var(--hivis-ink); fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.scan-cta svg .accent { fill: var(--hivis-ink); }
+.scan-cta > span:nth-child(2) { display: grid; flex: 1; }
+.scan-cta .muted { color: color-mix(in srgb, var(--hivis-ink) 75%, transparent); }
+.scan-cta .go { font-size: 22px; }
+.scanner { position: relative; margin: 0; border-radius: var(--radius-m); overflow: hidden; background: #0E1211; }
+.scanner video { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: cover; }
+.finder { position: absolute; inset: 0; margin: auto; width: min(62%, 300px); aspect-ratio: 1; border-radius: 16px;
+  box-shadow: 0 0 0 9999px rgba(14, 18, 17, .45); border: 3px solid var(--hivis); transition: border-color .2s; }
+.scanner.hit .finder { border-color: var(--pass); }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+#scan-result.verdict { display: block; }
+#code { text-transform: uppercase; letter-spacing: .12em; font-family: ui-monospace, Menlo, Consolas, monospace; }
