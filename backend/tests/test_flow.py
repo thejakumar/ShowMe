@@ -200,3 +200,95 @@ def test_big_scene_keeps_every_moving_part(client):
     ids = {i["id"] for i in a["instances"]}
     assert "seat" in ids and {"st0", "st1", "st2", "st3"} <= ids
     assert [x["say"] for x in a["actions"]][0].startswith("Lower seat A")
+
+
+# ---------------------------------------------------------------- QR packs, crowd heads-up, ledger, devices
+
+def ready_sample(client, kind: str = "assembly") -> str:
+    started = client.post(f"/api/manuals/sample?kind={kind}").json()
+    return wait_ready(client, started["id"])["id"]
+
+
+def test_qr_pack_publish_scan_and_start(client):
+    mid = ready_sample(client)
+    pack = client.post("/api/packs", json={"manual_id": mid, "brand": "Nordlund Home"}).json()
+    code = pack["code"]
+    assert len(code) == 6 and pack["url"].endswith(f"/p/{code}") and pack["brand"] == "Nordlund Home"
+    again = client.post("/api/packs", json={"manual_id": mid}).json()
+    assert again["code"] == code  # one guide per manual
+    qr = client.get(f"/api/packs/{code}/qr.svg")
+    assert qr.status_code == 200 and qr.headers["content-type"].startswith("image/svg") and b"<svg" in qr.content
+    scan = client.get(f"/p/{code.lower()}", follow_redirects=False)
+    assert scan.status_code == 302 and scan.headers["location"] == f"/#/pack/{code}"
+    for _ in range(100):  # 3D scenes are pre-built in the background
+        if client.get(f"/api/packs/{code}").json()["scenes"].get("finished"):
+            break
+        time.sleep(0.05)
+    assert client.get(f"/api/packs/{code}").json()["scenes"] == {"done": 5, "total": 5, "wonder": 5, "finished": True}
+    sid = client.post("/api/sessions", json={"person": "Shopper", "manual_id": mid, "pack_code": code}).json()["id"]
+    assert client.get(f"/api/sessions/{sid}").json()["pack_code"] == code
+    assert client.get("/api/packs/ZZZZZZ").status_code == 404
+
+
+def test_heads_up_from_earlier_mistakes_and_brand_stats(client):
+    mid = ready_sample(client)
+    code = client.post("/api/packs", json={"manual_id": mid}).json()["code"]
+    # someone builds it via the QR code and gets step 3 wrong first
+    sid = client.post("/api/sessions", json={"person": "Fay", "manual_id": mid, "pack_code": code}).json()["id"]
+    for order in (1, 2, 3, 3, 4, 5):
+        client.post(f"/api/sessions/{sid}/steps/{order}/check", files={"photo": photo()})
+    client.post(f"/api/sessions/{sid}/finish")
+    h = client.get(f"/api/manuals/{mid}/steps/3/heads-up").json()
+    assert h["mistakes"] >= 1 and "backwards" in h["tip"] and h["source"]
+    assert client.get(f"/api/manuals/{mid}/steps/1/heads-up").json()["tip"] == ""
+    st = client.get(f"/api/packs/{code}/stats").json()
+    assert st["scans"] >= 1 and st["finished"] >= 1 and st["hardest_step"]["order"] == 3
+    assert st["steps"][2]["tip"]
+    # the next person's live check is told what to watch for (cached, no extra model call)
+    from apprentice import insights
+    from apprentice.app import S
+    assert "backwards" in insights.cached_tip(S.store, mid, 3)
+
+
+def test_parts_ledger_points_at_the_step_missing_a_screw(client):
+    mid = ready_sample(client)
+    led = client.get(f"/api/manuals/{mid}/ledger").json()
+    assert [h["label"] for h in led["hardware"]] == ["D", "E"]
+    assert led["after"][2]["left"] == {"D": 0, "E": 4}
+    sid = client.post("/api/sessions", json={"person": "Gus", "manual_id": mid}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/ledger", files={"photo": photo()}, data={"before_step": "4"}).json()
+    e = next(x for x in r["rows"] if x["label"] == "E")
+    assert r["ok"] is False and e["expected"] == 4 and e["found"] == 5 and e["status"] == "extra"
+    assert e["blame"]["order"] == 3 and "Step 3" in e["message"]
+    ok = client.post(f"/api/sessions/{sid}/ledger", files={"photo": photo()}, data={"before_step": "3"}).json()
+    assert ok["ok"] is True
+
+
+def test_device_tour_ask_and_guided_task(client):
+    mid = ready_sample(client, "device")
+    m = client.get(f"/api/manuals/{mid}").json()
+    assert m["use_case"] == "device" and len(m["plan"]["parts"]) == 7 and m["plan"]["tasks"]
+    tour = client.post(f"/api/manuals/{mid}/tour", files={"photo": photo()}, data={"mode": "cloud"}).json()
+    assert {d["label"] for d in tour["detections"]} == {str(i) for i in range(1, 8)}
+    assert all(c["found"] and c["description"] for c in tour["controls"])
+
+    a = client.post(f"/api/manuals/{mid}/ask", json={"question": "How do I descale it"}).json()
+    assert a["in_manual"] and len(a["steps"]) == 5 and a["pages"] == [3] and a["cached"] is False
+    again = client.post(f"/api/manuals/{mid}/ask", json={"question": "how do i descale it?"}).json()
+    assert again["cached"] is True and again["manual_id"] == a["manual_id"]
+    task = client.get(f"/api/manuals/{a['manual_id']}").json()
+    assert task["use_case"] == "task" and task["plan"]["parent_manual_id"] == mid
+    assert task["plan"]["steps"][0]["figure_url"].startswith("/files/")
+    sid = client.post("/api/sessions", json={"person": "Hal", "manual_id": a["manual_id"]}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/steps/1/check", files={"photo": photo()}).json()
+    assert r["verdict"] in {"pass", "fail", "progress", "unsure"}
+
+    light = client.post(f"/api/manuals/{mid}/ask", json={"question": "What does the orange light mean?"}).json()
+    assert light["in_manual"] and light["steps"] == [] and "descale" in light["answer"].lower()
+    nope = client.post(f"/api/manuals/{mid}/ask", json={"question": "Can it make tea?"}).json()
+    assert nope["in_manual"] is False and nope["steps"] == []
+    # questions show up for the brand
+    code = client.post("/api/packs", json={"manual_id": mid}).json()["code"]
+    qs = client.get(f"/api/packs/{code}/stats").json()["questions"]
+    assert any("descale" in q["question"].lower() for q in qs)
+    assert client.post("/api/packs", json={"manual_id": a["manual_id"]}).status_code == 400

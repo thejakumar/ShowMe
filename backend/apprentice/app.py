@@ -6,19 +6,21 @@ Run:  uvicorn apprentice.app:app --app-dir backend --host 0.0.0.0 --port 8000
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import UnidentifiedImageError
 from pydantic import BaseModel
 
-from . import animation, car, images as imgs, lessons, mock, passport, sample, training
+from . import animation, car, devices, images as imgs, insights, lessons, mock, passport, sample, sample_device, training
 from .config import get_settings
 from .ingest import ingest_manual
 from .muse import MuseClient, MuseError
@@ -27,7 +29,7 @@ from .trace import Tracer
 from .vision import PrivacyError, Vision
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
-USE_CASES = {"assembly", "car", "training"}
+USE_CASES = {"assembly", "car", "training", "device"}
 MODES = {"cloud", "hybrid"}
 
 
@@ -165,7 +167,7 @@ async def list_manuals():
 @app.post("/api/manuals")
 async def upload_manual(file: UploadFile = File(...), title: str = Form(""), use_case: str = Form("assembly")):
     if use_case not in USE_CASES:
-        raise HTTPException(400, "use_case must be assembly, car or training")
+        raise HTTPException(400, "use_case must be assembly, training, device or car")
     data = await file.read()
     if not data.startswith(b"%PDF"):
         raise HTTPException(400, "Upload the manual as a PDF.")
@@ -181,18 +183,22 @@ async def upload_manual(file: UploadFile = File(...), title: str = Form(""), use
 
 
 @app.post("/api/manuals/sample")
-async def sample_manual():
-    existing = next((m for m in S.store.manuals() if m["title"] == sample.PRODUCT and m["status"] == "ready"), None)
+async def sample_manual(kind: str = "assembly"):
+    """The fictional sample manuals: a step stool (assembly) or a coffee maker (device)."""
+    mod, use, name = ((sample_device, "device", "brewline_one.pdf") if kind == "device"
+                      else (sample, "assembly", "birch_step_stool.pdf"))
+    existing = next((m for m in S.store.manuals()
+                     if m["title"] == mod.PRODUCT and m["use_case"] == use and m["status"] == "ready"), None)
     if existing:
         return {"id": existing["id"], "title": existing["title"], "status": "ready"}
-    pdf = S.settings.data_dir / "sample" / "birch_step_stool.pdf"
+    pdf = S.settings.data_dir / "sample" / name
     if not pdf.exists():
-        await asyncio.to_thread(sample.build_pdf, pdf)
-    mid = S.store.create_manual(sample.PRODUCT, "assembly")
+        await asyncio.to_thread(mod.build_pdf, pdf)
+    mid = S.store.create_manual(mod.PRODUCT, use)
     copy = S.store.path("manuals", mid, "source.pdf")
     copy.write_bytes(pdf.read_bytes())
-    start_ingest(mid, copy, sample.PRODUCT, "assembly")
-    return {"id": mid, "title": sample.PRODUCT, "status": "processing"}
+    start_ingest(mid, copy, mod.PRODUCT, use)
+    return {"id": mid, "title": mod.PRODUCT, "status": "processing"}
 
 
 @app.get("/api/manuals/{manual_id}")
@@ -214,12 +220,196 @@ async def step_animation(manual_id: str, order: int, refresh: bool = False):
         raise HTTPException(404, str(exc)) from exc
 
 
+@app.get("/api/manuals/{manual_id}/ledger")
+async def manual_ledger(manual_id: str):
+    """How much loose hardware should be left after each step."""
+    return training.ledger_plan(ready_manual(manual_id)["plan"])
+
+
+@app.get("/api/manuals/{manual_id}/steps/{order}/heads-up")
+async def heads_up(manual_id: str, order: int):
+    """The mistake earlier builders most often made at this step, said before the next person starts it."""
+    plan = ready_manual(manual_id)["plan"]
+    try:
+        return await insights.heads_up(S.store, S.muse, S.settings, manual_id, plan, order)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+# ---------------------------------------------------------------- machines and electronic devices
+
+class Question(BaseModel):
+    question: str
+
+
+@app.post("/api/manuals/{manual_id}/tour")
+async def device_tour(manual_id: str, photo: UploadFile = File(...), mode: str = Form("cloud")):
+    """One photo of the machine or device: every control the manual names, labeled with what it does."""
+    private = check_mode(mode)
+    plan = ready_manual(manual_id)["plan"]
+    img, info = await read_photo(photo, folder=("manuals", manual_id, "tours"), name=f"{new_id('t')}.jpg")
+    result = await devices.tour(img, plan, vision=S.vision, private=private, ctx={"manual_id": manual_id})
+    result["image"] = info
+    return result
+
+
+@app.post("/api/manuals/{manual_id}/ask")
+async def device_ask(manual_id: str, body: Question):
+    """'How do I ...?' answered from the manual, as a guided task when there is something to do."""
+    question = body.question.strip()[:300]
+    if len(question) < 3:
+        raise HTTPException(400, "Type or say a question first.")
+    parent = ready_manual(manual_id)
+    if parent["use_case"] == "task":
+        parent = ready_manual(parent["plan"]["parent_manual_id"])
+    return await devices.ask(question, parent, store=S.store, muse=S.muse, settings=S.settings)
+
+
+# ---------------------------------------------------------------- QR packs: scan the box, start building
+
+class NewPack(BaseModel):
+    manual_id: str
+    brand: str = ""
+
+
+def lan_ip() -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        try:
+            sock.connect(("10.255.255.255", 1))
+            return sock.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
+
+
+def public_base(request: Request) -> str:
+    """Where a phone that scans the QR code can reach this app."""
+    if S.settings.public_url:
+        return S.settings.public_url
+    host = request.url.hostname or "localhost"
+    port = request.url.port
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        host = lan_ip()
+    return f"{request.url.scheme}://{host}{f':{port}' if port else ''}"
+
+
+def _scenes(pack: dict) -> dict:
+    try:
+        return json.loads(pack.get("scenes") or "{}")
+    except ValueError:
+        return {}
+
+
+def pack_view(pack: dict, request: Request) -> dict:
+    manual = S.store.manual(pack["manual_id"]) or {}
+    plan = manual.get("plan") or {}
+    stats = insights.pack_stats(S.store, pack, plan) if plan else {}
+    return {
+        "code": pack["code"], "product": pack["product"], "brand": pack["brand"], "kind": pack["kind"],
+        "manual_id": pack["manual_id"], "created": pack["created"],
+        "url": f"{public_base(request)}/p/{pack['code']}",
+        "qr_url": f"/api/packs/{pack['code']}/qr.svg",
+        "scenes": _scenes(pack),
+        "summary": plan.get("summary", ""),
+        "steps": len(plan.get("steps", [])),
+        "parts": len(plan.get("parts", [])),
+        "tasks": plan.get("tasks", []),
+        "safety": plan.get("safety", []),
+        "median_minutes": stats.get("median_minutes"),
+        "builders": stats.get("sessions", 0),
+        "finished": stats.get("finished", 0),
+        "tips": sum(1 for r in stats.get("steps", []) if r.get("tip")),
+    }
+
+
+async def prebuild_scenes(code: str, manual_id: str) -> None:
+    """Build every step's 3D scene once, so a shopper who scans the box never waits on Muse Wonder."""
+    plan = S.store.manual(manual_id)["plan"]
+    steps = plan.get("steps", [])
+    state = {"done": 0, "total": len(steps), "wonder": 0, "finished": False}
+    S.store.set_pack_scenes(code, json.dumps(state))
+    sem = asyncio.Semaphore(2)
+
+    async def one(st: dict) -> None:
+        async with sem:
+            try:
+                r = await animation.step_animation(S.store, S.muse, S.settings, manual_id, plan, st["order"],
+                                                   figure_image(plan, st["order"]))
+                state["wonder"] += r["source"] == "Muse Wonder"
+            except Exception:  # noqa: BLE001 - a failed scene falls back to the simple preview at view time
+                pass
+            state["done"] += 1
+            S.store.set_pack_scenes(code, json.dumps(state))
+
+    await asyncio.gather(*(one(st) for st in steps))
+    state["finished"] = True
+    S.store.set_pack_scenes(code, json.dumps(state))
+
+
+@app.post("/api/packs")
+async def create_pack(body: NewPack, request: Request):
+    manual = ready_manual(body.manual_id)
+    if manual["use_case"] == "task":
+        raise HTTPException(400, "Publish the product's main manual, not a single question.")
+    existing = S.store.pack_for_manual(manual["id"])
+    if existing:
+        return pack_view(existing, request)
+    product = manual["plan"].get("product") or manual["title"]
+    code = S.store.create_pack(manual["id"], product, manual["use_case"], body.brand.strip()[:80])
+    task = asyncio.create_task(prebuild_scenes(code, manual["id"]))
+    S.tasks.add(task)
+    task.add_done_callback(S.tasks.discard)
+    return pack_view(S.store.pack(code), request)
+
+
+@app.get("/api/packs")
+async def list_packs(request: Request):
+    return [pack_view(p, request) for p in S.store.packs()]
+
+
+def pack_or_404(code: str) -> dict:
+    pack = S.store.pack(code)
+    if not pack:
+        raise HTTPException(404, "No guide with that code. Check the code printed under the QR.")
+    return pack
+
+
+@app.get("/api/packs/{code}")
+async def get_pack(code: str, request: Request):
+    return pack_view(pack_or_404(code), request)
+
+
+@app.get("/api/packs/{code}/stats")
+async def pack_stats(code: str):
+    pack = pack_or_404(code)
+    plan = ready_manual(pack["manual_id"])["plan"]
+    return insights.pack_stats(S.store, pack, plan)
+
+
+@app.get("/api/packs/{code}/qr.svg")
+async def pack_qr(code: str, request: Request):
+    import segno  # imported here so the rest of the app runs even before `pip install segno`
+
+    pack = pack_or_404(code)
+    qr = segno.make(f"{public_base(request)}/p/{pack['code']}", error="m")
+    buf = io.BytesIO()  # a standalone SVG (with its namespace), so browsers show it as an <img>
+    qr.save(buf, kind="svg", scale=8, border=2, dark="#1D2422", light="#FFFFFF", xmldecl=False)
+    return Response(buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "max-age=3600"})
+
+
+@app.get("/p/{code}")
+async def scan(code: str):
+    """What the QR code opens: straight into the product's guide."""
+    pack_or_404(code)
+    return RedirectResponse(f"/#/pack/{code.upper()}", status_code=302)
+
+
 # ---------------------------------------------------------------- training sessions
 
 class NewSession(BaseModel):
     person: str
     manual_id: str
     mode: str = "cloud"
+    pack_code: Optional[str] = None
 
 
 class ModeChange(BaseModel):
@@ -235,7 +425,10 @@ async def new_session(body: NewSession):
     ready_manual(body.manual_id)
     check_mode(body.mode)
     person = body.person.strip() or "Trainee"
-    sid = S.store.create_session(person, body.manual_id, body.mode)
+    code = body.pack_code.strip().upper() if body.pack_code else None
+    if code and not S.store.pack(code):
+        code = None
+    sid = S.store.create_session(person, body.manual_id, body.mode, code)
     return S.store.session(sid)
 
 
@@ -288,7 +481,8 @@ async def step_check(sid: str, order: int, photo: UploadFile = File(...)):
     try:
         result = await training.check_step(img, plan, order, figure_image(plan, order), muse=S.muse, vision=S.vision,
                                            settings=S.settings, private=s["mode"] == "hybrid", attempt=attempt,
-                                           ctx={"session_id": sid, "step": order})
+                                           ctx={"session_id": sid, "step": order},
+                                           common_mistake=insights.cached_tip(S.store, s["manual_id"], order))
     except KeyError as exc:
         raise HTTPException(404, str(exc)) from exc
     saved = S.store.add_result(sid, order, result["verdict"], confidence=result["confidence"], reason=result["reason"],
@@ -316,7 +510,8 @@ async def step_live(sid: str, order: int, photo: UploadFile = File(...), frame: 
     try:
         result = await training.live_check(img, plan, order, figure_image(plan, order), muse=S.muse, vision=S.vision,
                                            settings=S.settings, private=s["mode"] == "hybrid", frame=frame,
-                                           history=past, ctx={"session_id": sid, "step": order, "frame": frame})
+                                           history=past, ctx={"session_id": sid, "step": order, "frame": frame},
+                                           common_mistake=insights.cached_tip(S.store, s["manual_id"], order))
     except KeyError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -331,6 +526,19 @@ async def step_live(sid: str, order: int, photo: UploadFile = File(...), frame: 
                                    detections=result.get("detections"))
         recorded, result_id = result["verdict"], saved["id"]
     return {**result, "frame": frame, "recorded": recorded, "result_id": result_id, "image": info}
+
+
+@app.post("/api/sessions/{sid}/ledger")
+async def session_ledger(sid: str, before_step: int = Form(...), photo: UploadFile = File(...)):
+    """Count the leftover hardware and compare it with what should be left before this step."""
+    s = session_or_404(sid)
+    plan = ready_manual(s["manual_id"])["plan"]
+    img, info = await read_photo(photo, folder=("sessions", sid), name=f"ledger_step{before_step:02d}_{new_id('l')}.jpg")
+    result = await training.ledger_check(img, plan, before_step, vision=S.vision, settings=S.settings,
+                                         private=s["mode"] == "hybrid", reference=reference_image(plan),
+                                         ctx={"session_id": sid, "step": before_step})
+    result["image"] = info
+    return result
 
 
 @app.post("/api/results/{rid}/override")

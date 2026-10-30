@@ -8,3 +8,4 @@ pymupdf>=1.24
 pillow>=10.3
 reportlab>=4.0
 pytest>=8.0
+segno>=1.6

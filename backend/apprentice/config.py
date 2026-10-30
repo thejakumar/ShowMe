@@ -75,6 +75,8 @@ class Settings:
     # Manuals longer than this send only the most relevant pages to Spark.
     max_vision_pages: int = field(default_factory=lambda: int(_str("MAX_VISION_PAGES", "24")))
     max_upload_mb: int = field(default_factory=lambda: int(_str("MAX_UPLOAD_MB", "40")))
+    # Address printed in QR codes (an https tunnel or your domain). Empty: this PC's Wi-Fi address and port.
+    public_url: str = field(default_factory=lambda: _str("PUBLIC_URL", "").rstrip("/"))
 
     @property
     def private_vision(self) -> bool:

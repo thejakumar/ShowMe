@@ -160,6 +160,21 @@ class PlanStep(Lenient):
         return out
 
 
+def _str_list(v, limit: int = 12) -> list[str]:
+    if isinstance(v, str):
+        v = re.split(r"\n+", v)
+    if not isinstance(v, list):
+        return []
+    out = []
+    for x in v:
+        if isinstance(x, dict):
+            x = x.get("question") or x.get("title") or x.get("text") or ""
+        x = re.sub(r"^\s*(\d+[.)]|[-*•])\s*", "", str(x)).strip()
+        if x:
+            out.append(x)
+    return out[:limit]
+
+
 class Plan(Lenient):
     product: str
     summary: str = ""
@@ -167,6 +182,74 @@ class Plan(Lenient):
     steps: list[PlanStep] = Field(default_factory=list)
     safety: list[str] = Field(default_factory=list)
     warning_lights: list[WarningLightInfo] = Field(default_factory=list)
+    tasks: list[str] = Field(default_factory=list)  # machines and devices: "How do I ..." questions the manual answers
+
+    @field_validator("tasks", mode="before")
+    @classmethod
+    def _tasks(cls, v):
+        return _str_list(v, 8)
+
+
+# ---------- crowd heads-up and device questions ----------
+
+
+class HeadsUpReply(Lenient):
+    tip: str = ""  # one short spoken warning for the next person
+    look_for: str = ""  # what the camera should watch for
+
+
+class TaskStep(Lenient):
+    order: int = 0
+    title: str = ""
+    instruction: str = ""
+    done_when: str = ""
+    parts_used: list[PartUse] = Field(default_factory=list)
+    warning: str = ""
+    why: str = ""
+    page: Optional[int] = None
+
+    @field_validator("parts_used", mode="before")
+    @classmethod
+    def _uses(cls, v):
+        out = []
+        for item in v or []:
+            if isinstance(item, (str, int)):
+                out.append({"label": str(item), "quantity": 1})
+            elif isinstance(item, dict):
+                out.append({"label": str(item.get("label", "")), "quantity": item.get("quantity") or 1})
+        return [u for u in out if u["label"]]
+
+    @field_validator("page", mode="before")
+    @classmethod
+    def _page(cls, v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+
+class TaskAnswer(Lenient):
+    answer: str = ""  # two or three sentences, spoken
+    in_manual: bool = True  # False when the manual does not cover the question
+    pages: list[int] = Field(default_factory=list)
+    steps: list[TaskStep] = Field(default_factory=list)
+    safety: list[str] = Field(default_factory=list)
+
+    @field_validator("pages", mode="before")
+    @classmethod
+    def _pages(cls, v):
+        out = []
+        for x in v if isinstance(v, list) else [v]:
+            try:
+                out.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        return out[:12]
+
+    @field_validator("safety", mode="before")
+    @classmethod
+    def _safety(cls, v):
+        return _str_list(v, 6)
 
 
 # ---------- seeing the real world ----------

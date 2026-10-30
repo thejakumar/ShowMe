@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import sample
+from . import sample, sample_device
 
 CAR_PARTS = [
     {"label": "1", "name": "Engine oil dipstick", "quantity": 1, "sam_prompt": "engine oil dipstick handle, yellow loop", "page": 212},
@@ -37,6 +37,13 @@ def respond(purpose: str, **kw: Any) -> dict:
 # ---------------------------------------------------------------- manuals
 
 def _page(page: int = 1, use_case: str = "assembly", **_: Any) -> dict:
+    if use_case == "device":
+        if page == 1:
+            return {"page": 1, "kind": "parts", "notes": "",
+                    "parts": [{k: c[k] for k in ("label", "name", "description")} for c in sample_device.CONTROLS]}
+        return {"page": page, "kind": "steps", "notes": "",
+                "steps": [{"number": i + 1, "text": t} for i, t in enumerate(sample_device.PAGES_TEXT.get(page, []))
+                          if t[:1].isdigit()]}
     if use_case == "car":
         return {"page": page, "kind": "other", "parts": [], "steps": [], "warnings": [], "notes": "mock"}
     plan = sample.sample_plan()
@@ -53,6 +60,11 @@ def _page(page: int = 1, use_case: str = "assembly", **_: Any) -> dict:
 
 
 def _plan(use_case: str = "assembly", title: str = "", **_: Any) -> dict:
+    if use_case == "device":
+        plan = sample_device.sample_plan()
+        if title and "brewline" not in title.lower():
+            plan["product"] = title
+        return plan
     if use_case == "car":
         return {
             "product": title or "Owner's manual",
@@ -321,7 +333,87 @@ def _animation(step: int = 1, plan: dict | None = None, **_: Any) -> dict:
     return fallback(st, plan or {})
 
 
+# ---------------------------------------------------------------- devices, ledger, crowd tips
+
+DEVICE_BOXES = {"1": [330, 230, 400, 300], "2": [560, 220, 660, 320], "3": [700, 120, 860, 560],
+                "4": [340, 330, 380, 370], "5": [430, 240, 540, 310], "6": [380, 760, 640, 820],
+                "7": [360, 60, 640, 130]}
+
+
+def _tour(targets: list[dict] | None = None, **_: Any) -> dict:
+    dets = [{"label": t["label"], "box": DEVICE_BOXES[t["label"]], "confidence": 0.86}
+            for t in targets or [] if t["label"] in DEVICE_BOXES]
+    if not dets:
+        return _detect(targets=targets)
+    return {"detections": dets, "notes": "mock"}
+
+
+def _ledger(targets: list[dict] | None = None, step: int = 1, **_: Any) -> dict:
+    """Leftover hardware: before step 4 there is one screw too many (step 3 is missing one)."""
+    dets = []
+    for r, t in enumerate(targets or []):
+        qty = int(t.get("quantity") or 0) + (1 if t["label"] == "E" and step == 4 else 0)
+        for box in _grid_boxes(qty, r, max(len(targets), 1)) if qty else []:
+            dets.append({"label": t["label"], "box": box, "confidence": 0.88})
+    return {"detections": dets, "notes": "mock layout"}
+
+
+def _heads_up(step: int = 1, examples: list[dict] | None = None, **_: Any) -> dict:
+    if step == 3:
+        return {"tip": "Most people fit panel B backwards here. The pre-drilled holes must face inward.",
+                "look_for": "a side panel with its holes facing outward"}
+    last = (examples or [{}])[-1]
+    return {"tip": f"People often get this wrong: {last.get('observed', '')} {last.get('fix', '')}".strip(),
+            "look_for": last.get("observed", "")}
+
+
+def _answer(question: str = "", **_: Any) -> dict:
+    q = question.lower()
+    if "descal" in q:
+        return {"answer": "Descale when light 4 glows orange, about once a month. It takes about 20 minutes "
+                          "and needs one descaler sachet.", "in_manual": True, "pages": [3],
+                "steps": [
+                    {"title": "Add descaler", "instruction": "Empty water tank 3, add one descaler sachet, and fill it to MAX.",
+                     "done_when": "Water tank 3 is back in place, filled to MAX", "parts_used": [{"label": "3"}], "page": 3},
+                    {"title": "Place a large mug", "instruction": "Put a large mug on drip tray 6. Don't insert a pod.",
+                     "done_when": "A large mug sits under the spout and the pod holder is empty", "parts_used": [{"label": "6"}], "page": 3},
+                    {"title": "Start descaling", "instruction": "Hold brew button 5 for 3 seconds until light 4 flashes.",
+                     "done_when": "Descale light 4 is flashing orange", "parts_used": [{"label": "5"}, {"label": "4"}], "page": 3},
+                    {"title": "Wait for the light to go out", "instruction": "Wait about 20 minutes, emptying the mug when full.",
+                     "done_when": "Descale light 4 is off", "parts_used": [{"label": "4"}], "page": 3},
+                    {"title": "Rinse", "instruction": "Rinse tank 3, fill it with clean water, and brew one large cup with no pod. Pour it away.",
+                     "done_when": "Tank 3 holds clean water and the rinse cup is brewed", "parts_used": [{"label": "3"}, {"label": "5"}], "page": 3},
+                ], "safety": ["Never drink the descaling water."]}
+    if "brew" in q or "cup" in q or "coffee" in q:
+        return {"answer": "Put a pod in holder 7, choose the size on dial 2, and press brew button 5.", "in_manual": True,
+                "pages": [2], "steps": [
+                    {"title": "Insert a pod", "instruction": "Lift the handle of pod holder 7, insert one pod, and close it until it clicks.",
+                     "done_when": "Pod holder 7 is closed with the handle down", "parts_used": [{"label": "7"}], "page": 2},
+                    {"title": "Choose the size", "instruction": "Turn dial 2 to your cup size and put a mug on drip tray 6.",
+                     "done_when": "A mug sits on drip tray 6 under the spout", "parts_used": [{"label": "2"}, {"label": "6"}], "page": 2},
+                    {"title": "Brew", "instruction": "Press brew button 5. It stops by itself.",
+                     "done_when": "Coffee is in the mug and button 5 is no longer lit", "parts_used": [{"label": "5"}], "page": 2},
+                ], "safety": []}
+    if "light" in q or "orange" in q:
+        return {"answer": "A steady orange light 4 means descale soon. Flashing means descaling is in progress. "
+                          "A flashing white power button just means it's heating.", "in_manual": True, "pages": [3],
+                "steps": [], "safety": []}
+    if "drip" in q or "clean" in q:
+        return {"answer": "Slide out drip tray 6, empty it, wash it in warm soapy water, dry it, and slide it back.",
+                "in_manual": True, "pages": [3], "steps": [
+                    {"title": "Remove the tray", "instruction": "Slide out drip tray 6 and empty it.",
+                     "done_when": "Drip tray 6 is out of the machine and empty", "parts_used": [{"label": "6"}], "page": 3},
+                    {"title": "Wash and refit", "instruction": "Wash it in warm soapy water, dry it, and slide it back.",
+                     "done_when": "Drip tray 6 is back in place, clean and dry", "parts_used": [{"label": "6"}], "page": 3},
+                ], "safety": []}
+    return {"answer": "The manual doesn't cover that.", "in_manual": False, "pages": [], "steps": [], "safety": []}
+
+
 HANDLERS = {
+    "controls_tour": _tour,
+    "parts_ledger": _ledger,
+    "mistake_summary": _heads_up,
+    "task_answer": _answer,
     "page_extraction": _page,
     "plan_building": _plan,
     "parts_inventory": _detect,

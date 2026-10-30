@@ -109,7 +109,8 @@ async def show_step_parts(img: Image.Image, plan: dict, order: int, *, vision: V
 
 
 async def check_step(img: Image.Image, plan: dict, order: int, figure: Optional[Image.Image], *, muse: MuseClient,
-                     vision: Vision, settings: Settings, private: bool, attempt: int, ctx: dict) -> dict:
+                     vision: Vision, settings: Settings, private: bool, attempt: int, ctx: dict,
+                     common_mistake: str = "") -> dict:
     """After-photo -> pass, fail or unsure, with what was seen and how to fix it."""
     step = step_by_order(plan, order)
     if step is None:
@@ -139,7 +140,8 @@ async def check_step(img: Image.Image, plan: dict, order: int, figure: Optional[
     images = [img] + ([figure] if figure is not None else [])
     reply = await muse.json(
         role="spark", purpose="step_check", system=prompts.CHECK_SYSTEM,
-        text=prompts.check_prompt(step, parts_lookup, figure is not None, plan.get("steps")), images=images,
+        text=prompts.check_prompt(step, parts_lookup, figure is not None, plan.get("steps"), common_mistake),
+        images=images,
         schema=StepCheckReply, effort=settings.check_effort, ctx=ctx,
         mock_args={"step": order, "attempt": attempt},
     )
@@ -157,7 +159,7 @@ async def check_step(img: Image.Image, plan: dict, order: int, figure: Optional[
 
 async def live_check(img: Image.Image, plan: dict, order: int, figure: Optional[Image.Image], *, muse: MuseClient,
                      vision: Vision, settings: Settings, private: bool, frame: int, history: list[dict],
-                     ctx: dict) -> dict:
+                     ctx: dict, common_mistake: str = "") -> dict:
     """One live camera frame -> verdict plus one short spoken instruction for right now."""
     step = step_by_order(plan, order)
     if step is None:
@@ -173,7 +175,8 @@ async def live_check(img: Image.Image, plan: dict, order: int, figure: Optional[
     images = [img] + ([figure] if figure is not None else [])
     reply = await muse.json(
         role="spark", purpose="live_check", system=prompts.LIVE_SYSTEM,
-        text=prompts.live_prompt(step, parts_lookup, figure is not None, history, plan.get("steps")), images=images,
+        text=prompts.live_prompt(step, parts_lookup, figure is not None, history, plan.get("steps"), common_mistake),
+        images=images,
         schema=StepCheckReply, effort=settings.live_effort, ctx=ctx,
         mock_args={"step": order, "frame": frame},
     )
@@ -191,3 +194,91 @@ async def live_check(img: Image.Image, plan: dict, order: int, figure: Optional[
         "say": say,
         "box": [v / 1000 for v in reply.box] if reply.box else None, "detections": [],
     }
+
+
+# ---------------------------------------------------------------- parts ledger
+
+
+def ledger_plan(plan: dict) -> dict:
+    """Which hardware is used up step by step, and how much should be left after each step.
+
+    Only parts that are consumed count (screws, dowels): a label whose uses add up to no more than its
+    quantity. Panels that appear in several steps are reused, not consumed, and are left out.
+    """
+    used: Counter = Counter()
+    for st in plan.get("steps", []):
+        for u in st.get("parts_used", []):
+            used[u["label"]] += int(u.get("quantity") or 1)
+    hardware = [p for p in plan.get("parts", [])
+                if (p.get("quantity") or 1) >= 2 and 0 < used[p["label"]] <= (p.get("quantity") or 1)]
+    labels = {p["label"] for p in hardware}
+    left = {p["label"]: int(p.get("quantity") or 1) for p in hardware}
+    after = []
+    for st in plan.get("steps", []):
+        for u in st.get("parts_used", []):
+            if u["label"] in labels:
+                left[u["label"]] -= int(u.get("quantity") or 1)
+        after.append({"order": st["order"], "left": dict(left)})
+    return {"hardware": [{"label": p["label"], "name": p["name"], "quantity": int(p.get("quantity") or 1)}
+                         for p in hardware], "after": after}
+
+
+def expected_left(plan: dict, before_order: int) -> dict[str, int]:
+    """Hardware that should still be loose when the person is about to start step before_order."""
+    ledger = ledger_plan(plan)
+    left = {h["label"]: h["quantity"] for h in ledger["hardware"]}
+    for row in ledger["after"]:
+        if row["order"] < before_order:
+            left = row["left"]
+    return left
+
+
+async def ledger_check(img: Image.Image, plan: dict, before_order: int, *, vision: Vision, settings: Settings,
+                       private: bool, reference: Optional[Image.Image], ctx: dict) -> dict:
+    """Count the loose hardware and compare it with what should be left before this step.
+
+    One too many screws left over means an earlier step is missing one; too few means a part went into
+    the wrong place or got lost, and the remaining steps may run short.
+    """
+    ledger = ledger_plan(plan)
+    if not ledger["hardware"]:
+        return {"rows": [], "summary": "This manual has no loose hardware to track.", "ok": True, "detections": []}
+    expect = expected_left(plan, before_order)
+    names = {h["label"]: h["name"] for h in ledger["hardware"]}
+    targets = [t for t in targets_for(plan, list(expect)) if expect.get(t["label"], 0) >= 0]
+    for t in targets:
+        t["quantity"] = expect[t["label"]]
+    dets, notes = await vision.locate(img, targets, purpose="parts_ledger", count_every_instance=True,
+                                      reference=None if private else reference, private=private, ctx=ctx,
+                                      mock_args={"step": before_order})
+    found = Counter(d["label"] for d in dets if d["confidence"] >= settings.min_confidence)
+    steps = plan.get("steps", [])
+    rows, problems = [], []
+    for label, want in expect.items():
+        have = found[label]
+        rest = sum(int(u.get("quantity") or 1) for st in steps if st["order"] >= before_order
+                   for u in st.get("parts_used", []) if u["label"] == label)
+        row = {"label": label, "name": names[label], "expected": want, "found": have, "needed_from_here": rest,
+               "status": "ok", "blame": None, "message": ""}
+        if have > want:
+            earlier = [st for st in steps if st["order"] < before_order
+                       and any(u["label"] == label for u in st.get("parts_used", []))]
+            blame = earlier[-1] if earlier else None
+            extra = have - want
+            row.update(status="extra", blame={"order": blame["order"], "title": blame["title"]} if blame else None,
+                       message=(f"{extra} extra {names[label]} {label}. Step {blame['order']} probably has "
+                                f"{'one' if extra == 1 else extra} missing: check it before you go on."
+                                if blame else f"{extra} extra {names[label]} {label}."))
+        elif have < want:
+            short = rest - have
+            row.update(status="short" if short > 0 else "low",
+                       message=(f"{want - have} fewer {names[label]} {label} than expected. "
+                                + (f"The steps ahead need {rest}: you're {short} short. Check earlier steps for "
+                                   f"one used in the wrong place, or look on the floor."
+                                   if short > 0 else "You still have enough for the steps ahead.")))
+        if row["status"] in {"extra", "short"}:
+            problems.append(row["message"])
+        rows.append(row)
+    summary = " ".join(problems) if problems else "Hardware adds up. Exactly what should be left before this step."
+    return {"rows": rows, "summary": summary, "ok": not problems, "detections": dets, "notes": notes,
+            "before_step": before_order}

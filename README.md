@@ -7,7 +7,9 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026).
 | Use case | What happens |
 | --- | --- |
 | **Assemble something** (lead demo) | One photo of the loose parts: every piece is found, labeled with the manual's letter, and counted. Then each step is checked from a photo, and mistakes are caught with what's wrong, why it matters, and how to fix it. |
-| **Train on a machine** | The same loop for a work machine's manual. Verified steps go on a skill passport. |
+| **Train on a machine** | Photograph the machine and every control is labeled with what it does. Ask "how do I clear a jam?" and get walked through it from the manual, each step checked. Verified steps go on a skill passport. |
+| **Learn a device** | The same for any electronic device: tap a button on the photo to hear what it does, ask "what does the orange light mean?", or "how do I descale it?" and follow the guided steps. |
+| **QR guides for brands** | Publish a manual once and print the QR code on the box. Shoppers scan and start: no PDF, no upload, every 3D scene pre-built. Brands see where people struggle and what they ask. |
 | **Car checks** | The engine bay is labeled from the owner's manual (dipstick, coolant, washer fluid) with page numbers, and dashboard warning lights are read. |
 | **Learn any idea** | Ask about orbits or compound interest. The objects in your room become the lesson's cast, animated over your photo, and fact-checked first. |
 
@@ -46,6 +48,24 @@ Each step's diagram has three tabs: **Manual**, **3D** and **AR**.
 
 3D rendering uses three.js (MIT licence), bundled in `backend/static/vendor/`, so no CDN is needed.
 
+### Why not just upload the manual to a chatbot?
+
+Because a chatbot starts from zero every time, needs your hands, and gives the brand nothing back. Apprentice adds:
+
+- **QR guides: nothing to upload.** On **For brands: QR guides**, publish any manual that's been read. Apprentice builds every step's 3D scene in the background and gives you a QR code plus a printable box label. Scanning it opens `/p/CODE`, which goes straight to the product's guide. QR codes point at this PC's Wi-Fi address; set `PUBLIC_URL` in `.env` to an https tunnel or your domain so phones anywhere can open them.
+- **Heads-up from earlier builders.** Every caught mistake is logged per step. Before a step, Muse Spark turns the mistakes people made there into one spoken warning ("Most people fit panel B backwards here. The holes must face inward."), cached until a new mistake comes in. The live and photo checks are told to watch for that mistake specifically.
+- **Brand dashboard.** For each guide: people started and finished, typical build time, mistakes caught, the share of people who got each step wrong, the hardest step with the heads-up given, and the questions owners asked (including ones the manual doesn't cover).
+- **Parts ledger.** Each step shows how much loose hardware should be left afterwards. **Count leftover hardware** photographs what's left and compares: one screw too many means an earlier step is missing one, and the app names the step; too few means the steps ahead will run short.
+- **Hands-free.** Turn on **Hands-free** (on by default from a QR code). The app reads the step and the heads-up, opens the camera by itself, coaches out loud, and moves to the next step when the check passes. Voice commands: "next", "skip", "back", "repeat", "check", "stop", "show me" (3D) and "parts". Voice commands need Chrome or Edge on this PC or over https; without them, everything else still works hands-free.
+
+### Machines and devices
+
+Choose a manual under **Train on a machine** or **Learn a device** (or try the sample coffee maker) to open its page:
+
+- **What does each button do?** One photo of the device; every control the manual names is labeled. Tap one to see it highlighted and hear what it does.
+- **How do I…** Type, say, or tap a suggested question. Muse Wonder answers only from the manual, with page numbers, and says plainly when the manual doesn't cover it. When the answer is something to do, **Guide me through it** turns it into camera-checked steps. Each question is answered once and reused, and it shows up on the brand dashboard.
+- **First-time setup** runs the manual's setup as a guided session.
+
 ## Settings (`.env`)
 
 | Setting | Default | Meaning |
@@ -60,6 +80,7 @@ Each step's diagram has three tabs: **Manual**, **3D** and **AR**.
 | `MIN_CONFIDENCE` | `0.6` | Below this, the app asks the person instead of guessing. |
 | `MAX_VISION_PAGES` | `24` | Long manuals (car manuals) send only the most relevant pages. |
 | `APPRENTICE_MOCK` | auto | `1` forces mock mode even with a key. |
+| `PUBLIC_URL` | (empty) | Address printed in QR codes, for example an https tunnel. Empty means this PC's Wi-Fi address. |
 
 ## How it works
 

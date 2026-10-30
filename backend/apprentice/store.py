@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS step_results (
     detections_json TEXT,
     created TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS packs (
+    code TEXT PRIMARY KEY,
+    manual_id TEXT NOT NULL,
+    brand TEXT DEFAULT '',
+    product TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    scenes TEXT DEFAULT '',
+    created TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lessons (
     id TEXT PRIMARY KEY,
     concept TEXT NOT NULL,
@@ -75,6 +84,9 @@ class Store:
         self.db.row_factory = sqlite3.Row
         with self._lock:
             self.db.executescript(SCHEMA)
+            cols = {r[1] for r in self.db.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "pack_code" not in cols:  # databases created before QR packs: add the column, keep every row
+                self.db.execute("ALTER TABLE sessions ADD COLUMN pack_code TEXT")
             self.db.commit()
 
     # ---------- helpers
@@ -130,13 +142,25 @@ class Store:
 
     # ---------- sessions
 
-    def create_session(self, person: str, manual_id: str, mode: str) -> str:
+    def create_session(self, person: str, manual_id: str, mode: str, pack_code: Optional[str] = None) -> str:
         sid = new_id("ses")
         self._exec(
-            "INSERT INTO sessions (id, person, manual_id, mode, started) VALUES (?,?,?,?,?)",
-            (sid, person, manual_id, mode, now()),
+            "INSERT INTO sessions (id, person, manual_id, mode, started, pack_code) VALUES (?,?,?,?,?,?)",
+            (sid, person, manual_id, mode, now(), pack_code),
         )
         return sid
+
+    def sessions_for(self, manual_ids: list[str]) -> list[dict]:
+        if not manual_ids:
+            return []
+        marks = ",".join("?" * len(manual_ids))
+        return self._all(f"SELECT * FROM sessions WHERE manual_id IN ({marks}) ORDER BY started", tuple(manual_ids))
+
+    def results_for(self, manual_id: str) -> list[dict]:
+        """Every step result for one manual, with the person and session, for crowd insights."""
+        return self._all(
+            "SELECT r.*, s.person, s.pack_code FROM step_results r JOIN sessions s ON s.id = r.session_id"
+            " WHERE s.manual_id = ? ORDER BY r.created", (manual_id,))
 
     def session(self, sid: str) -> Optional[dict]:
         row = self._one("SELECT * FROM sessions WHERE id = ?", (sid,))
@@ -186,6 +210,30 @@ class Store:
             r["detections"] = json.loads(r.pop("detections_json") or "[]")
             r["final"] = r["override"] or r["verdict"]
         return rows
+
+    # ---------- QR packs
+
+    def create_pack(self, manual_id: str, product: str, kind: str, brand: str = "") -> str:
+        alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # no 0/O or 1/I: easy to read off a box
+        while True:
+            code = "".join(alphabet[b % len(alphabet)] for b in uuid.uuid4().bytes[:6])
+            if not self.pack(code):
+                break
+        self._exec("INSERT INTO packs (code, manual_id, brand, product, kind, scenes, created) VALUES (?,?,?,?,?,?,?)",
+                   (code, manual_id, brand, product, kind, "", now()))
+        return code
+
+    def pack(self, code: str) -> Optional[dict]:
+        return self._one("SELECT * FROM packs WHERE code = ?", (code.upper(),))
+
+    def packs(self) -> list[dict]:
+        return self._all("SELECT * FROM packs ORDER BY created DESC")
+
+    def pack_for_manual(self, manual_id: str) -> Optional[dict]:
+        return self._one("SELECT * FROM packs WHERE manual_id = ? ORDER BY created DESC", (manual_id,))
+
+    def set_pack_scenes(self, code: str, scenes: str) -> None:
+        self._exec("UPDATE packs SET scenes = ? WHERE code = ?", (scenes, code))
 
     # ---------- lessons
 

@@ -40,8 +40,12 @@ def page_prompt(page: int, total: int, text_layer: str, use_case: str) -> str:
                     "Steps usually show a step number, a diagram, and the hardware used with quantities.",
         "car": "Look for under-hood diagrams that name components (dipstick, coolant reservoir, brake fluid, "
                "washer fluid, battery, fuses), owner maintenance procedures, and dashboard warning lights.",
-        "training": "Look for named machine parts, numbered procedures (cleaning, refilling, descaling, clearing jams) "
-                    "and safety warnings.",
+        "training": "Look for named machine parts and controls, numbered procedures (cleaning, refilling, descaling, "
+                    "clearing jams) and safety warnings.",
+        "device": "This is an electronic device. Look for the diagram that names each button, dial, port, light and "
+                  "screen element (usually numbered callouts), how-to procedures, settings menus, indicator-light "
+                  "meanings and troubleshooting tables. Put each control in parts with its callout number as label "
+                  "and what it does in description.",
     }.get(use_case, "")
     return (
         f"Page {page} of {total}. {focus}\n"
@@ -76,6 +80,7 @@ def plan_prompt(title: str, use_case: str, extractions: list[dict]) -> str:
                    "page": 5, "figure_box": [60, 120, 940, 900]}],
         "safety": ["Do not overtighten the screws in particle board."],
         "warning_lights": [],
+        "tasks": [],
     }
     guidance = {
         "assembly": "Build the full assembly sequence. Keep the manual's step order and count.",
@@ -84,8 +89,15 @@ def plan_prompt(title: str, use_case: str, extractions: list[dict]) -> str:
                "(dipstick, oil filler cap, coolant reservoir, brake fluid reservoir, washer reservoir, battery, fuse box) "
                "with label 1, 2, 3... Never include brakes, airbags, fuel or high-voltage work. "
                "Copy any dashboard warning lights into warning_lights.",
-        "training": "Build the main operator procedures (for example cleaning, refilling, clearing a jam), "
-                    "each step checkable by a photo. List the machine parts involved.",
+        "training": "As parts, list the machine's named parts and controls (label = the manual's callout number, "
+                    "description = what it is for). As steps, write the main start-up or first-use procedure, each "
+                    "step checkable by a photo. In tasks, list 4 to 8 other jobs the manual explains, phrased as "
+                    "questions an operator would ask (\"How do I clear a paper jam?\").",
+        "device": "As parts, list every control the manual names: buttons, dials, ports, lights, screen areas "
+                  "(label = the manual's callout number, description = what it does, sam_prompt = how it looks). "
+                  "As steps, write the first-time setup, each step checkable by a photo. In tasks, list 4 to 8 "
+                  "things people most often want to do that the manual explains, phrased as questions "
+                  "(\"How do I descale it?\", \"What does the blinking orange light mean?\").",
     }.get(use_case, "")
     return (
         f"Manual: {title}\nUse case: {use_case}. {guidance}\n\n"
@@ -161,7 +173,13 @@ CHECK_SYSTEM = (
 )
 
 
-def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, plan_steps: list[dict] | None = None) -> str:
+def _crowd(common_mistake: str) -> str:
+    return (f"Earlier builders often got this step wrong like this: {common_mistake} "
+            "Check for that mistake specifically.\n" if common_mistake else "")
+
+
+def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, plan_steps: list[dict] | None = None,
+                 common_mistake: str = "") -> str:
     uses = ", ".join(f"{u['quantity']}x {u['label']} ({parts_lookup.get(u['label'], '')})" for u in step.get("parts_used", []))
     example = {"verdict": "fail", "confidence": 0.86, "state": "in_progress", "progress": 0.5,
                "observed": "Panel B is fitted with its holes facing inward; only one of two screws is in.",
@@ -174,7 +192,7 @@ def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, pla
     return (
         f"{_procedure(plan_steps, step['order'])}"
         f"Step {step['order']}: {step['title']}\nInstruction: {step['instruction']}\n"
-        f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n\n"
+        f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n{_crowd(common_mistake)}\n"
         f"The first image is a photo of the work. {fig}"
         "verdict is pass (done), fail (wrong or not finished) or unsure (cannot tell). "
         "box marks the area the person should look at next (the problem on a mistake).\n"
@@ -194,7 +212,7 @@ LIVE_SYSTEM = (
 
 
 def live_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, history: list[dict],
-                plan_steps: list[dict] | None = None) -> str:
+                plan_steps: list[dict] | None = None, common_mistake: str = "") -> str:
     uses = ", ".join(f"{u['quantity']}x {u['label']} ({parts_lookup.get(u['label'], '')})" for u in step.get("parts_used", []))
     example = {"verdict": "fail", "confidence": 0.82, "state": "fixing", "progress": 0.4,
                "observed": "Panel B is off and turned around; its holes now face inward.",
@@ -209,7 +227,7 @@ def live_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, hist
     return (
         f"{_procedure(plan_steps, step['order'])}"
         f"Step {step['order']}: {step['title']}\nInstruction: {step['instruction']}\n"
-        f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n\n"
+        f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n{_crowd(common_mistake)}\n"
         f"What you saw and said in the last few frames:\n{recent}\n\n"
         f"The first image is the newest camera frame. {fig}"
         "verdict: pass only when the done-when condition is clearly met in this frame; fail when something is wrong "
@@ -219,6 +237,62 @@ def live_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, hist
         "next_steps (or a short confirmation when done). Do not repeat your last line word for word. "
         "box marks where to look or work next.\n\n"
         f"Reply in exactly this shape:\n{json.dumps(example)}"
+    )
+
+
+# ---------------------------------------------------------------- what earlier builders got wrong (Spark)
+
+HEADS_UP_SYSTEM = (
+    "You turn the mistakes earlier people made at one step of a manual into one short heads-up for the next "
+    "person, spoken before they start the step. Name the mistake and the right way, in plain words. Never "
+    "invent a mistake that is not in the list. Reply with one JSON object and nothing else."
+)
+
+
+def heads_up_prompt(step: dict, examples: list[dict]) -> str:
+    lines = "\n".join(f"- saw: {e['observed']} | why it matters: {e['reason']} | fix: {e['fix']}" for e in examples)
+    example = {"tip": "Most people fit panel B backwards here. The holes must face inward.",
+               "look_for": "panel B with its pre-drilled holes facing outward"}
+    return (
+        f"Step {step['order']}: {step['title']}\nInstruction: {step['instruction']}\nDone when: {step['done_when']}\n\n"
+        f"Mistakes caught at this step:\n{lines}\n\n"
+        "tip: at most 18 words, starting with what people get wrong. look_for: what a camera should watch for.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example)}"
+    )
+
+
+# ---------------------------------------------------------------- "how do I ..." from the manual (Wonder)
+
+ASK_SYSTEM = (
+    "You answer questions about one machine or electronic device using only its manual, then turn the answer "
+    "into steps a person can follow with the device in front of them while a camera checks each step. "
+    "Never invent buttons, settings or procedures the manual does not describe. If the manual does not cover "
+    "the question, say so plainly and leave steps empty. Reply with one JSON object and nothing else."
+)
+
+
+def ask_prompt(question: str, product: str, controls: list[dict], manual_text: str) -> str:
+    ctl = "\n".join(f"- {c['label']}: {c['name']}" + (f" ({c['description']})" if c.get("description") else "")
+                    for c in controls) or "- (none listed)"
+    example = {
+        "answer": "Descale when light 4 glows orange, about once a month. It takes 20 minutes and uses one sachet.",
+        "in_manual": True, "pages": [2],
+        "steps": [{"order": 1, "title": "Fill the tank with descaler",
+                   "instruction": "Empty water tank 3, add one descaler sachet, and fill to MAX with water.",
+                   "done_when": "Water tank 3 is back in place and filled to the MAX line",
+                   "parts_used": [{"label": "3", "quantity": 1}], "warning": "", "why": "Descaler dissolves limescale.",
+                   "page": 2}],
+        "safety": ["Do not drink the descaling water."],
+    }
+    return (
+        f"Device: {product}\nQuestion: {question}\n\nControls and parts named in the manual (use these labels):\n{ctl}\n\n"
+        f"The manual:\n<<<\n{manual_text[:60000]}\n>>>\n\n"
+        "answer: two or three short sentences that answer the question directly, to be read aloud.\n"
+        "steps: only when the answer is something to do; 1 to 10 steps, each one action, in the manual's order. "
+        "done_when must be visible in one photo of the device (a light, a screen message, a part in place). "
+        "parts_used uses the control labels above. page: the manual page it comes from.\n"
+        "pages: every page the answer relies on. in_manual: false when the manual does not cover it.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example, indent=1)}"
     )
 
 

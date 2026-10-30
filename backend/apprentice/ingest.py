@@ -6,6 +6,7 @@ Runs once per product; the plan is cached in the store, so demos never wait on i
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,8 @@ KEYWORDS = {
     "car": ["engine compartment", "under the hood", "dipstick", "engine oil", "coolant", "brake fluid", "washer fluid",
             "battery", "fuse", "warning light", "indicator", "tire pressure", "tyre pressure", "checking", "maintenance"],
     "training": ["clean", "descal", "refill", "jam", "maintenance", "parts", "step", "caution", "warning", "operation"],
+    "device": ["button", "press", "hold", "port", "indicator", "light", "display", "menu", "setting", "setup",
+               "connect", "reset", "pair", "clean", "descal", "troubleshoot", "error", "names of parts", "controls"],
 }
 
 
@@ -123,6 +126,8 @@ async def ingest_manual(
         good = [_compact(e) for e in extractions if "error" not in e]
         if not good:
             raise MuseError(f"Muse Spark could not read any page: {extractions[0].get('error', '')}")
+        # kept for "how do I ..." questions later, so answers come from every page that was read
+        store.path("manuals", manual_id, "extractions.json").write_text(json.dumps(good, ensure_ascii=False))
 
         store.update_manual(manual_id, progress="Writing the lesson plan")
         plan = await muse.json(

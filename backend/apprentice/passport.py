@@ -30,7 +30,8 @@ def passport(store: Store) -> list[dict]:
         rows.append({
             "session_id": s["id"],
             "person": s["person"],
-            "product": plan.get("product") or (manual or {}).get("title", "Unknown"),
+            "product": (plan.get("product") or (manual or {}).get("title", "Unknown"))
+                       + (f": {plan['question'].rstrip('?')}" if plan.get("question") else ""),
             "use_case": (manual or {}).get("use_case", ""),
             "mode": s["mode"],
             "started": s["started"],

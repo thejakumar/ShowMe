@@ -346,3 +346,80 @@ ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(-
 @media (min-width: 421px) {
   .mockband { display: none; }
 }
+
+/* ---------- step page: heads-up, ledger, hands-free */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.headsup { padding: 12px 14px; border-radius: var(--radius-s); background: var(--unsure-bg); border-left: 6px solid var(--hivis); }
+.headsup strong { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--unsure); margin-bottom: 2px; }
+.headsup .small { display: block; margin-top: 4px; }
+.ledger-line { font-size: 15px; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.ledger-line b { color: var(--ink); }
+.ledger-line .callout { font-size: 12px; width: 22px; height: 22px; }
+.btn.quiet[aria-pressed="true"] { text-decoration-color: var(--hivis); text-decoration-thickness: 3px; }
+.listening { color: var(--ink-2); padding-left: 18px; position: relative; }
+.listening::before { content: ""; position: absolute; left: 2px; top: .45em; width: 9px; height: 9px; border-radius: 50%; background: var(--fail); }
+@media (prefers-reduced-motion: no-preference) { .listening::before { animation: pulse 1.6s ease-in-out infinite; } }
+@keyframes pulse { 50% { opacity: .3; } }
+.task-q { font-weight: 650; color: var(--ink-2); margin-bottom: 8px; }
+
+/* ---------- machines and devices */
+.ask-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ask-row input { flex: 1 1 220px; min-height: 48px; padding: 10px 14px; border-radius: var(--radius-m); border: 1.5px solid var(--ink); background: var(--sheet); font: inherit; }
+.hub-ask .chip { white-space: normal; text-align: left; }
+.answer { border: 1.5px solid var(--ink); border-left: 6px solid var(--hivis); border-radius: var(--radius-m); padding: 16px; background: var(--sheet); display: grid; gap: 10px; }
+.answer.not-in { border-left-color: var(--rule); }
+.answer .a-text { font-size: 18px; line-height: 1.45; }
+.mini-steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.controls { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.controls li button { width: 100%; display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 12px 2px;
+  border: 0; border-bottom: 1px solid var(--rule); background: none; font: inherit; color: inherit; cursor: pointer; }
+.controls li button:disabled { cursor: default; opacity: .6; }
+.controls li button:not(:disabled):hover strong { text-decoration: underline; }
+.controls .callout { flex: none; }
+.small-capture { min-height: 0; padding: 12px; flex-direction: row; gap: 10px; margin-top: 10px; }
+.small-capture svg { width: 28px; height: 28px; }
+
+/* ---------- QR landing */
+.pack-brand { font-size: 14px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+.pack-facts { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.pack-facts li { padding-left: 22px; position: relative; }
+.pack-facts li::before { content: ""; position: absolute; left: 2px; top: .5em; width: 10px; height: 10px; border-radius: 3px; background: var(--hivis); border: 1.5px solid var(--hivis-ink); }
+.toggle { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: var(--sheet); cursor: pointer; }
+.toggle input { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--ink); flex: none; }
+.btn.big { min-height: 56px; font-size: 18px; }
+
+/* ---------- brand dashboard */
+.pack-row { display: flex; align-items: center; gap: 14px; width: 100%; text-decoration: none; color: inherit; }
+.pack-row img { border: 1px solid var(--rule); border-radius: 4px; background: #fff; flex: none; }
+.pack-row > div { flex: 1; min-width: 0; }
+.pack-row .go { font-size: 22px; color: var(--ink-2); }
+.pack-head { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.pack-head > .stack { flex: 1 1 260px; min-width: 0; }
+.pack-head a { overflow-wrap: anywhere; }
+.qr { width: 160px; height: 160px; background: #fff; border: 1px solid var(--rule); border-radius: var(--radius-s); padding: 6px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.kpis > div { border: 1.5px solid var(--rule); border-radius: var(--radius-m); padding: 14px; background: var(--sheet); display: grid; gap: 2px; }
+.kpis b { font-size: 28px; font-stretch: 110%; line-height: 1.1; }
+.kpis span { font-size: 14px; color: var(--ink-2); }
+.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.bars li { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+.b-label { font-weight: 600; }
+.b-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.b-track { grid-column: 1 / -1; height: 10px; border-radius: 999px; background: var(--rule); overflow: hidden; }
+.b-fill { display: block; height: 100%; background: var(--fail); border-radius: 999px; min-width: 2px; }
+.b-tip { grid-column: 1 / -1; font-size: 14px; color: var(--ink-2); }
+
+/* ---------- printable box label */
+.label-sheet { display: grid; gap: 20px; justify-items: start; }
+.label { display: flex; gap: 20px; align-items: center; padding: 20px; border: 2px solid #1D2422; border-radius: 12px; background: #fff; color: #1D2422; max-width: 560px; }
+.label img { width: 150px; height: 150px; flex: none; }
+.l-kicker { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.l-title { font-size: 22px; font-weight: 750; line-height: 1.2; margin: 4px 0; font-stretch: 105%; }
+.l-sub { font-size: 14px; }
+.l-code { font-size: 13px; margin-top: 8px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+@media (max-width: 480px) { .label { flex-direction: column; align-items: flex-start; } }
+@media print {
+  .bar, .mockband, .dock, .no-print, .toast { display: none !important; }
+  body { background: #fff; }
+  main { padding: 0; }
+}
