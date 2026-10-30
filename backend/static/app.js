@@ -1,4 +1,4 @@
-// Apprentice web app: phone-first screens for assembly, machine training, car checks,
+// ShowMe web app: phone-first screens for assembly, machine training, car checks,
 // concept lessons and the team passport. No build step; plain modules.
 
 import { makeShot } from "./overlay.js";
@@ -174,7 +174,7 @@ const ICONS = {
 async function home() {
   view.innerHTML = `
     <h1>Every product comes with an expert.</h1>
-    <p class="lede">Point your phone at the real thing. Apprentice reads the manual, finds each part, and checks every step you do.</p>
+    <p class="lede">Point your phone at the real thing. ShowMe reads the manual, finds each part, and checks every step you do.</p>
     <ul class="uses">
       <li class="lead"><a href="#/assemble">${ICONS.stool}<div><h3>Assemble something</h3><p>Flat-pack furniture from a pile of loose parts to finished, with every part counted and every step checked.</p></div><span class="go" aria-hidden="true">›</span></a></li>
       <li><a href="#/assemble?use=training">${ICONS.machine}<div><h3>Train on a machine</h3><p>Learn a work machine from its manual: what every control does, any procedure on request, each step checked and logged on your skill passport.</p></div><span class="go" aria-hidden="true">›</span></a></li>
@@ -198,7 +198,7 @@ async function assemble(_, query) {
     <div class="stack-l">
       <div class="stack">
         <h2>${heading}</h2>
-        <p class="muted">Pick a manual Apprentice has already read, or upload the PDF that came with your ${noun}.</p>
+        <p class="muted">Pick a manual ShowMe has already read, or upload the PDF that came with your ${noun}.</p>
         <ul class="list" id="manuals"><li class="muted">Loading manuals</li></ul>
         ${use === "assembly" ? `<button class="btn" id="sample" type="button">Try the sample step stool</button>` : ""}
         ${use === "device" ? `<button class="btn" id="sample" type="button" data-kind="device">Try the sample coffee maker</button>` : ""}
@@ -311,7 +311,7 @@ function inventoryStage(session, plan) {
     ${progressBar(plan, 0)}
     <div class="stack">
       <h2>Check the parts</h2>
-      <p class="muted">Lay every part out on the floor, spread apart, and take one photo from above. Apprentice counts each one against the manual's parts list.</p>
+      <p class="muted">Lay every part out on the floor, spread apart, and take one photo from above. ShowMe counts each one against the manual's parts list.</p>
       ${plan.reference_url ? `<details><summary class="small">The manual's parts list</summary><img class="figure" src="${plan.reference_url}" alt="Parts drawings from the manual"></details>` : ""}
       <div id="area">
         <button class="capture" id="snap" type="button">${CAMERA_ICON}<strong>Take the parts photo</strong><span class="muted small">${plan.parts.length} part types, ${plan.parts.reduce((a, p) => a + (p.quantity || 1), 0)} pieces expected</span></button>
@@ -837,7 +837,7 @@ async function carView(_, query) {
         <div class="field"><label for="cpdf">Manual (PDF)</label><input id="cpdf" name="file" type="file" accept="application/pdf" required></div>
         <input type="hidden" name="use_case" value="car">
         <button class="btn" type="submit">Upload and read</button>
-        <p class="small muted">Long manuals are fine: Apprentice reads the pages about the engine bay and warning lights.</p>
+        <p class="small muted">Long manuals are fine: ShowMe reads the pages about the engine bay and warning lights.</p>
       </form>
     </div>`;
 
@@ -1083,7 +1083,7 @@ async function deviceView([mid], query) {
 
       <section class="stack">
         <h2>What does each button do?</h2>
-        <p class="muted">Take one photo of the ${kindNoun}. Apprentice labels every control the manual names, so you can tap any of them.</p>
+        <p class="muted">Take one photo of the ${kindNoun}. ShowMe labels every control the manual names, so you can tap any of them.</p>
         <div id="tour-area"><button class="capture" id="tour" type="button">${CAMERA_ICON}<strong>Photograph the ${kindNoun}</strong><span class="muted small">${plan.parts.length} controls in the manual</span></button></div>
         <ul class="controls" id="controls"></ul>
       </section>
@@ -1111,7 +1111,7 @@ async function deviceView([mid], query) {
           ${r.safety?.length ? `<p class="warn">${r.safety.map(esc).join(" ")}</p>` : ""}
           ${r.steps.length ? `<ol class="mini-steps">${r.steps.map((st) => `<li><strong>${esc(st.title)}.</strong> ${esc(st.instruction)}</li>`).join("")}</ol>
             <div class="row"><button class="btn primary" id="guide" type="button">Guide me through it</button><span class="small muted">The camera checks each step as you do it.</span></div>` : ""}
-          ${r.in_manual ? "" : `<p class="small muted">Apprentice only answers from this ${kindNoun}'s manual, so it won't guess.</p>`}
+          ${r.in_manual ? "" : `<p class="small muted">ShowMe only answers from this ${kindNoun}'s manual, so it won't guess.</p>`}
         </section>`;
       speak(r.answer);
       $("#guide", answer)?.addEventListener("click", async () => {
@@ -1188,7 +1188,7 @@ async function packView([code]) {
   view.innerHTML = `
     <div class="stack-l pack-landing">
       <div class="stack">
-        <p class="pack-brand">${p.brand ? esc(p.brand) : "Apprentice"} · ${kind}</p>
+        <p class="pack-brand">${p.brand ? esc(p.brand) : "ShowMe"} · ${kind}</p>
         <h1>${esc(p.product)}</h1>
         ${p.summary ? `<p class="lede">${esc(p.summary)}</p>` : ""}
         <ul class="pack-facts">

@@ -1,6 +1,6 @@
-# Apprentice
+# ShowMe
 
-**Every product comes with an expert.** Upload a manual, point your phone at the real thing, and Apprentice finds each part, guides every step, and checks your work with Meta's Muse models.
+**Every product comes with an expert.** Upload a manual, point your phone at the real thing, and ShowMe finds each part, guides every step, and checks your work with Meta's Muse models.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026).
 
@@ -20,7 +20,7 @@ Every session also exports as robot-ready episodes: steps, photos, and verdicts.
 1. Install Python 3.11 or newer from python.org (tick "Add python.exe to PATH").
 2. Double-click `run.bat`. The first run creates `.venv`, installs packages, creates `.env`, and starts in **mock mode** (canned answers, no API calls).
 3. Open `.env`, set `MODEL_API_KEY=` to your Meta Model API key, and run `run.bat` again. The header changes from "Mock mode" to "Live on Muse".
-4. Your browser opens by itself once Apprentice answers, at `http://127.0.0.1:PORT`. If another app already answers on port 8000, Apprentice uses the next free port and prints the address in the window.
+4. Your browser opens by itself once ShowMe answers, at `http://127.0.0.1:PORT`. If another app already answers on port 8000, ShowMe uses the next free port and prints the address in the window.
 
 macOS or Linux: `./run.sh`.
 
@@ -50,9 +50,9 @@ Each step's diagram has three tabs: **Manual**, **3D** and **AR**.
 
 ### Why not just upload the manual to a chatbot?
 
-Because a chatbot starts from zero every time, needs your hands, and gives the brand nothing back. Apprentice adds:
+Because a chatbot starts from zero every time, needs your hands, and gives the brand nothing back. ShowMe adds:
 
-- **QR guides: nothing to upload.** On **For brands: QR guides**, publish any manual that's been read. Apprentice builds every step's 3D scene in the background and gives you a QR code plus a printable box label. Scanning it opens `/p/CODE`, which goes straight to the product's guide. QR codes point at this PC's Wi-Fi address; set `PUBLIC_URL` in `.env` to an https tunnel or your domain so phones anywhere can open them.
+- **QR guides: nothing to upload.** On **For brands: QR guides**, publish any manual that's been read. ShowMe builds every step's 3D scene in the background and gives you a QR code plus a printable box label. Scanning it opens `/p/CODE`, which goes straight to the product's guide. QR codes point at this PC's Wi-Fi address; set `PUBLIC_URL` in `.env` to an https tunnel or your domain so phones anywhere can open them.
 - **Heads-up from earlier builders.** Every caught mistake is logged per step. Before a step, Muse Spark turns the mistakes people made there into one spoken warning ("Most people fit panel B backwards here. The holes must face inward."), cached until a new mistake comes in. The live and photo checks are told to watch for that mistake specifically.
 - **Brand dashboard.** For each guide: people started and finished, typical build time, mistakes caught, the share of people who got each step wrong, the hardest step with the heads-up given, and the questions owners asked (including ones the manual doesn't cover).
 - **Parts ledger.** Each step shows how much loose hardware should be left afterwards. **Count leftover hardware** photographs what's left and compares: one screw too many means an earlier step is missing one, and the app names the step; too few means the steps ahead will run short.

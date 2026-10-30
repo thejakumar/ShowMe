@@ -1,4 +1,4 @@
-"""Measure Apprentice on your own photos, against answers you wrote down first.
+"""Measure ShowMe on your own photos, against answers you wrote down first.
 
     python eval/run.py --cases eval/cases.json [--base http://localhost:8000] [--mode cloud]
 
@@ -60,7 +60,7 @@ def main() -> int:
     root = cases_path.parent
     client = httpx.Client(base_url=args.base, timeout=300)
     status = client.get("/api/status").json()
-    lines = [f"# Apprentice eval, {datetime.now():%Y-%m-%d %H:%M}", "",
+    lines = [f"# ShowMe eval, {datetime.now():%Y-%m-%d %H:%M}", "",
              f"Mode: {args.mode}. Models: {status['models']}. Vision: {status['vision_backend']}."
              + (" **Mock mode: these numbers are not real.**" if status["mock"] else ""), ""]
     latencies: list[float] = []

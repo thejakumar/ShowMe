@@ -1,11 +1,11 @@
-"""Start Apprentice on the first free port from 8000, print the addresses, and open the browser.
+"""Start ShowMe on the first free port from 8000, print the addresses, and open the browser.
 
     python backend/scripts/serve.py [--port 8000] [--no-browser]
 
 Why this is careful about ports: on Windows another app can listen on 127.0.0.1:8000 while
-Apprentice still manages to bind 0.0.0.0:8000. The browser then reaches the other app
+ShowMe still manages to bind 0.0.0.0:8000. The browser then reaches the other app
 (it shows {"detail": "Not Found"}). So a port counts as free only if nothing answers on it,
-and the browser opens only after Apprentice itself has answered.
+and the browser opens only after ShowMe itself has answered.
 """
 
 from __future__ import annotations
@@ -66,23 +66,23 @@ def lan_ip() -> str:
             return "YOUR-PC-IP"
 
 
-def is_apprentice(url: str) -> bool:
+def is_showme(url: str) -> bool:
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=2) as r:
-            return json.loads(r.read().decode()).get("app") == "apprentice"
+            return json.loads(r.read().decode()).get("app") == "showme"
     except Exception:
         return False
 
 
 def open_when_ready(url: str, open_browser: bool) -> None:
     for _ in range(60):
-        if is_apprentice(url):
-            print(f"\n  Apprentice is ready: {url}\n", flush=True)
+        if is_showme(url):
+            print(f"\n  ShowMe is ready: {url}\n", flush=True)
             if open_browser:
                 webbrowser.open(url)
             return
         time.sleep(0.5)
-    print(f"\n  Apprentice did not answer at {url}. Look for an error above.\n", flush=True)
+    print(f"\n  ShowMe did not answer at {url}. Look for an error above.\n", flush=True)
 
 
 def main() -> None:
@@ -93,16 +93,16 @@ def main() -> None:
 
     port = free_port(args.port)
     if port != args.port:
-        print(f"Port {args.port} is used by another app, so Apprentice uses port {port}.")
+        print(f"Port {args.port} is used by another app, so ShowMe uses port {port}.")
     # 127.0.0.1 rather than "localhost": localhost can resolve to IPv6, where another app may listen.
     local = f"http://127.0.0.1:{port}"
-    print(f"\n  Apprentice on this PC:      {local}")
+    print(f"\n  ShowMe on this PC:          {local}")
     print(f"  On your phone (same Wi-Fi): http://{lan_ip()}:{port}\n", flush=True)
     threading.Thread(target=open_when_ready, args=(local, not args.no_browser), daemon=True).start()
     try:
         uvicorn.run("apprentice.app:app", app_dir=str(BACKEND), host="0.0.0.0", port=port)
     except Exception as e:  # keep the reason on screen
-        print(f"\nApprentice stopped: {e}", file=sys.stderr)
+        print(f"\nShowMe stopped: {e}", file=sys.stderr)
         raise
 
 

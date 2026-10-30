@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apprentice on macOS/Linux: sets up a virtual environment once, then starts the app on port 8000.
+# ShowMe on macOS/Linux: sets up a virtual environment once, then starts the app on port 8000.
 set -euo pipefail
 cd "$(dirname "$0")"
 [ -x .venv/bin/python ] || python3 -m venv .venv

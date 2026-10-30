@@ -1,4 +1,4 @@
-"""Apprentice API and web app.
+"""ShowMe API and web app.
 
 Run:  uvicorn apprentice.app:app --app-dir backend --host 0.0.0.0 --port 8000
 """
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     await S.muse.aclose()
 
 
-app = FastAPI(title="Apprentice", lifespan=lifespan)
+app = FastAPI(title="ShowMe", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 app.mount("/files", StaticFiles(directory=str(get_settings().data_dir)), name="files")
 
@@ -147,7 +147,7 @@ async def index():
 async def status():
     s = S.settings
     return {
-        "app": "apprentice",
+        "app": "showme",
         "mock": s.mock,
         "vision_backend": s.vision_backend,
         "private_available": S.vision.private_available,
@@ -614,7 +614,7 @@ async def get_passport():
 @app.get("/api/export/robot-data")
 async def robot_data():
     data = passport.robot_export(S.store)
-    return JSONResponse(data, headers={"Content-Disposition": 'attachment; filename="apprentice-episodes.json"'})
+    return JSONResponse(data, headers={"Content-Disposition": 'attachment; filename="showme-episodes.json"'})
 
 
 @app.get("/api/traces")

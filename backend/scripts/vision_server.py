@@ -3,7 +3,7 @@
     pip install fastapi uvicorn pillow torch torchvision   # plus the sam3 package, see apprentice/sam_local.py
     python backend/scripts/vision_server.py --port 8100
 
-Then on the Apprentice machine set in .env:
+Then on the ShowMe machine set in .env:
     VISION_BACKEND=sam_remote
     SAM_REMOTE_URL=http://<gpu-machine>:8100
 
@@ -40,7 +40,7 @@ class SegmentRequest(BaseModel):
 
 def build(checkpoint: str | None) -> FastAPI:
     sam = SamLocal(checkpoint)
-    app = FastAPI(title="Apprentice private SAM 3.1")
+    app = FastAPI(title="ShowMe private SAM 3.1")
 
     @app.get("/health")
     def health():

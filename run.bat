@@ -1,5 +1,5 @@
 @echo off
-rem Apprentice on Windows: sets up a virtual environment once, then starts the app on port 8000.
+rem ShowMe on Windows: sets up a virtual environment once, then starts the app on port 8000.
 setlocal
 cd /d "%~dp0"
 
@@ -41,6 +41,6 @@ if not exist ".env" (
 )
 
 echo.
-echo Starting Apprentice. Your browser opens by itself; close this window to stop the app.
+echo Starting ShowMe. Your browser opens by itself; close this window to stop the app.
 python backend\scripts\serve.py
 pause

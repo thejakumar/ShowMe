@@ -117,7 +117,7 @@ def build_pdf(path: Path) -> Path:
     c.drawString(MARGIN, PAGE_H - 135, "Assembly instructions. One person, about 15 minutes.")
     _stool(c, PAGE_W / 2, 330, 1.6, ink, wood)
     c.setFont("Helvetica", 10)
-    c.drawString(MARGIN, 60, "Fictional sample product for testing Apprentice.")
+    c.drawString(MARGIN, 60, "Fictional sample product for testing ShowMe.")
     c.showPage()
 
     # page 2: parts list

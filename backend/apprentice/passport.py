@@ -87,4 +87,4 @@ def robot_export(store: Store) -> dict:
             "inventory": s.get("inventory"),
             "frames": frames,
         })
-    return {"format": "apprentice-episodes/v1", "episodes": episodes}
+    return {"format": "showme-episodes/v1", "episodes": episodes}

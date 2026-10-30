@@ -125,7 +125,7 @@ def build_pdf(path: Path) -> Path:
         c.drawString(60, y, f"{ctl['label']}  {ctl['name']}: {ctl['description']}")
         y -= 18
     c.setFont("Helvetica", 9)
-    c.drawString(40, 40, "Fictional sample product for testing Apprentice.")
+    c.drawString(40, 40, "Fictional sample product for testing ShowMe.")
     c.showPage()
 
     for page in (2, 3):
