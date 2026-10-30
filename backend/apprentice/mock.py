@@ -409,7 +409,55 @@ def _answer(question: str = "", **_: Any) -> dict:
     return {"answer": "The manual doesn't cover that.", "in_manual": False, "pages": [], "steps": [], "safety": []}
 
 
+def _listing(text: str = "", **_: Any) -> dict:
+    import re
+
+    low = text.lower()
+    named = re.search(r"^(?:Title|Name typed by the person|Name from the link): (.+)$", text, re.M)
+    if "shelf" in low or "bookcase" in low or "stool" in low or "desk" in low:
+        return {"is_product": True, "product": named.group(1).split(",")[0].strip() if named else "Corner shelf",
+                "brand": "", "model": "", "kind": "assembly", "category": "furniture",
+                "summary": "Flat-pack furniture.", "in_the_box": ["5 shelves", "8 tubes", "4 feet"]}
+    if "not a product" in low:
+        return {"is_product": False}
+    return {"is_product": True, "product": "Brewline One coffee maker", "brand": "Brewline", "model": "One",
+            "kind": "device", "category": "coffee maker", "summary": "A single-serve pod coffee maker.",
+            "in_the_box": ["Coffee maker", "Water tank", "Drip tray"]}
+
+
+def _listing_plan(kind: str = "device", product: str = "", **_: Any) -> dict:
+    if kind == "assembly":
+        return {"product": product, "summary": "Preparation from the store listing. The assembly steps are in the printed instructions.",
+                "parts": [{"label": "1", "name": "Shelf", "quantity": 5}, {"label": "2", "name": "Tube", "quantity": 8},
+                          {"label": "3", "name": "Foot", "quantity": 4}],
+                "steps": [
+                    {"order": 1, "title": "Clear a space", "instruction": "Clear a floor space about twice the shelf's size, on a rug or the flattened box.",
+                     "done_when": "An empty, soft area of floor is ready", "why": "A soft surface protects the parts."},
+                    {"order": 2, "title": "Lay out the parts", "instruction": "Open the box and lay every part out, grouped by type.",
+                     "parts_used": [{"label": "1", "quantity": 5}, {"label": "2", "quantity": 8}, {"label": "3", "quantity": 4}],
+                     "done_when": "All shelves, tubes and feet are laid out in groups", "why": "Counting first catches a missing part early."},
+                    {"order": 3, "title": "Find the printed instructions", "instruction": "Find the instruction sheet in the box and photograph each page.",
+                     "done_when": "The instruction sheet is out of the box and open", "why": "The exact order of assembly is only in the official instructions."},
+                ], "safety": ["Keep small parts away from children."], "tasks": [], "needs_manual": True,
+                "note": "The store listing doesn't include the assembly order. Photograph the instruction sheet to get the full guided build."}
+    return {"product": product, "summary": "General first-time setup from the store listing.",
+            "parts": [{"label": "1", "name": "Coffee maker", "quantity": 1}, {"label": "2", "name": "Water tank", "quantity": 1},
+                      {"label": "3", "name": "Drip tray", "quantity": 1}],
+            "steps": [
+                {"order": 1, "title": "Unbox and check the contents", "instruction": "Take the coffee maker, water tank and drip tray out and remove all tape and film.",
+                 "parts_used": [{"label": "1", "quantity": 1}, {"label": "2", "quantity": 1}, {"label": "3", "quantity": 1}],
+                 "done_when": "The machine, tank and tray are on the counter with no tape or film left", "why": "Tape left on can block the water tank."},
+                {"order": 2, "title": "Fill the water tank", "instruction": "Rinse the water tank, fill it with cold water, and fit it to the machine.",
+                 "parts_used": [{"label": "2", "quantity": 1}], "done_when": "The water tank is full and seated on the machine", "why": "The pump must not run dry."},
+                {"order": 3, "title": "Plug in and switch on", "instruction": "Plug the machine in and press the power button.",
+                 "parts_used": [{"label": "1", "quantity": 1}], "done_when": "The machine shows a light that it is on", "why": "It needs to heat before the first use."},
+            ], "safety": ["Never immerse the machine in water."], "tasks": [], "needs_manual": False,
+            "note": "Exact buttons and settings aren't in the listing; the official manual has them."}
+
+
 HANDLERS = {
+    "listing_read": _listing,
+    "listing_plan": _listing_plan,
     "controls_tour": _tour,
     "parts_ledger": _ledger,
     "mistake_summary": _heads_up,

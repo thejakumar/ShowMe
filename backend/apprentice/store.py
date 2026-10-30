@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS packs (
     scenes TEXT DEFAULT '',
     created TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS links (
+    key TEXT PRIMARY KEY,
+    manual_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    retailer TEXT DEFAULT '',
+    created TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lessons (
     id TEXT PRIMARY KEY,
     concept TEXT NOT NULL,
@@ -234,6 +241,15 @@ class Store:
 
     def set_pack_scenes(self, code: str, scenes: str) -> None:
         self._exec("UPDATE packs SET scenes = ? WHERE code = ?", (scenes, code))
+
+    # ---------- store links
+
+    def link(self, key: str) -> Optional[dict]:
+        return self._one("SELECT * FROM links WHERE key = ?", (key,))
+
+    def save_link(self, key: str, manual_id: str, url: str, retailer: str) -> None:
+        self._exec("INSERT OR REPLACE INTO links (key, manual_id, url, retailer, created) VALUES (?,?,?,?,?)",
+                   (key, manual_id, url, retailer, now()))
 
     # ---------- lessons
 

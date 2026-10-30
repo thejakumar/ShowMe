@@ -59,6 +59,19 @@ Because a chatbot starts from zero every time, needs your hands, and gives the b
 - **Parts ledger.** Each step shows how much loose hardware should be left afterwards. **Count leftover hardware** photographs what's left and compares: one screw too many means an earlier step is missing one, and the app names the step; too few means the steps ahead will run short.
 - **Hands-free.** Turn on **Hands-free** (on by default from a QR code). The app reads the step and the heads-up, opens the camera by itself, coaches out loud, and moves to the next step when the check passes. Voice commands: "next", "skip", "back", "repeat", "check", "stop", "show me" (3D) and "parts". Voice commands need Chrome or Edge on this PC or over https; without them, everything else still works hands-free.
 
+### Bought it online? Paste the store link
+
+**Paste the Amazon or store link** on the home screen (or scan a store QR code) works with Amazon (including amzn.to short links), IKEA, Walmart, Flipkart, Best Buy, Target, Wayfair, eBay and most other shops:
+
+1. ShowMe reads the link: the store, the product id (Amazon ASIN, IKEA article number...) and the name in the address.
+2. It reads the product page: title, brand, model, feature bullets, product data, and any links to manuals.
+3. **If the page links the official manual PDF**, ShowMe downloads it and reads it like an upload: the full guided, camera-checked setup.
+4. **If not**, Muse Wonder writes a general setup guide from the listing, labeled "From the store listing, not the official manual" everywhere it appears. For anything that needs assembling it gives preparation steps only and asks for the printed instructions, because an invented assembly order is worse than none.
+
+Many stores block automated page reads (Amazon's "Robot Check"). ShowMe detects that and still uses the product name in the link; if the link has no name, type the brand and model in the optional box. For safety it only opens normal public web pages (never this PC or your local network) and limits download sizes.
+
+**No PDF at all?** Every manual upload also accepts photos: photograph each page of the paper booklet, in order, and upload them together.
+
 ### Machines and devices
 
 Choose a manual under **Train on a machine** or **Learn a device** (or try the sample coffee maker) to open its page:

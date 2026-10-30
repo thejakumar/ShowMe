@@ -138,7 +138,7 @@ document.querySelectorAll(".privacy button").forEach((b) => b.addEventListener("
 
 const routes = {
   "": home, assemble, session: sessionView, car: carView, learn: learnView, team: teamView,
-  device: deviceView, pack: packView, brand: brandView, scan: scanView,
+  device: deviceView, pack: packView, brand: brandView, scan: scanView, link: linkView,
 };
 
 async function render() {
@@ -178,6 +178,7 @@ async function home() {
     <h1>Every product comes with an expert.</h1>
     <p class="lede">Point your phone at the real thing. ShowMe reads the manual, finds each part, and checks every step you do.</p>
     <a class="scan-cta" href="#/scan">${ICONS.scan}<span><strong>Scan the code on the box</strong><span class="small muted">Opens the product's guide. No manual to find.</span></span><span class="go" aria-hidden="true">›</span></a>
+    <p class="link-cta"><a href="#/link">Bought it online? Paste the Amazon or store link</a> and ShowMe finds its setup guide.</p>
     <ul class="uses">
       <li class="lead"><a href="#/assemble">${ICONS.stool}<div><h3>Assemble something</h3><p>Flat-pack furniture from a pile of loose parts to finished, with every part counted and every step checked.</p></div><span class="go" aria-hidden="true">›</span></a></li>
       <li><a href="#/assemble?use=training">${ICONS.machine}<div><h3>Train on a machine</h3><p>Learn a work machine from its manual: what every control does, any procedure on request, each step checked and logged on your skill passport.</p></div><span class="go" aria-hidden="true">›</span></a></li>
@@ -209,7 +210,7 @@ async function assemble(_, query) {
       <form class="stack" id="upload">
         <h3>Upload a manual</h3>
         <div class="field"><label for="title">Name</label><input id="title" name="title" placeholder="${placeholder}" autocomplete="off"></div>
-        <div class="field"><label for="pdf">Manual (PDF)</label><input id="pdf" name="file" type="file" accept="application/pdf" required></div>
+        <div class="field"><label for="pdf">Manual: a PDF, or photos of each page</label><input id="pdf" name="file" type="file" accept="application/pdf,image/*" multiple required><span class="small muted">Lost the PDF? Photograph each page of the paper booklet, in order.</span></div>
         <input type="hidden" name="use_case" value="${use}">
         <button class="btn primary" type="submit">Upload and read the manual</button>
       </form>
@@ -390,6 +391,7 @@ function stepStage(session, plan, order, ledger) {
   view.innerHTML = `
     <a class="back" href="${prev ? `#/session/${session.id}/step/${prev.order}` : firstBack[0]}">${prev ? `Back to step ${prev.order}` : firstBack[1]}</a>
     ${plan.question ? `<p class="task-q">${esc(plan.question)}</p>` : ""}
+    ${plan.source?.kind === "listing" ? `<p class="tag extra source-tag">General step from the store listing, not the official manual</p>` : ""}
     ${progressBar(plan, idx + 1)}
     <div class="stack">
       <div class="step-head"><span class="step-no">${step.order}</span><div><p class="muted small">Step ${idx + 1} of ${plan.steps.length}</p><h2>${esc(step.title)}</h2></div></div>
@@ -1070,6 +1072,7 @@ async function deviceView([mid], query) {
         <p class="muted small">${manual.use_case === "training" ? "Machine training" : "Learn a device"}</p>
         <h1>${esc(plan.product)}</h1>
         ${plan.summary ? `<p class="lede">${esc(plan.summary)}</p>` : ""}
+        ${plan.source?.kind === "listing" ? `<p class="tag extra source-tag">General guide from the ${esc(plan.source.retailer || "store")} listing, not the official manual</p>` : ""}
       </div>
 
       <section class="stack hub-ask">
@@ -1363,7 +1366,9 @@ async function scanView() {
     const code = parseGuideCode(text);
     if (code) { open(code); return true; }
     result.className = "verdict unsure";
-    result.innerHTML = `That QR code isn't a ShowMe guide. It says: <span class="mono">${esc(String(text).slice(0, 140))}</span>`;
+    const isWeb = /^https?:\/\//i.test(String(text).trim());
+    result.innerHTML = `That QR code isn't a ShowMe guide. It says: <span class="mono">${esc(String(text).slice(0, 140))}</span>
+      ${isWeb ? `<span class="row" style="margin-top:10px"><a class="btn primary" href="#/link?u=${encodeURIComponent(String(text).trim())}">Get setup instructions from this link</a></span>` : ""}`;
     return false;
   };
   const photoButton = (label) => {
@@ -1405,6 +1410,101 @@ async function scanView() {
     if (code) open(code);
     else { result.className = "verdict unsure"; result.textContent = "That doesn't look like a ShowMe code. It's six letters and numbers, like 6SC5B8."; }
   });
+}
+
+
+// ---------------------------------------------------------------- bought online: a store link becomes a guide
+
+const RETAILER_HINT = "Amazon, IKEA, Walmart, Flipkart, Best Buy or any shop";
+
+async function linkView(_, query) {
+  const preset = query.get("u") || "";
+  view.innerHTML = `
+    <a class="back" href="#/">Home</a>
+    <div class="stack-l">
+      <div class="stack">
+        <h2>Set up something you bought online</h2>
+        <p class="muted">Paste the product's link from ${RETAILER_HINT}. If the page has the official manual, ShowMe reads it and guides every step. If not, you get a general setup guide from the listing, clearly marked as such.</p>
+      </div>
+      <form class="stack" id="link-form">
+        <div class="field"><label for="url">Product link</label>
+          <div class="ask-row"><input id="url" value="${esc(preset)}" placeholder="https://www.amazon.com/…/dp/B0…" autocomplete="off" inputmode="url" spellcheck="false">
+          ${navigator.clipboard?.readText ? `<button class="btn" id="paste" type="button">Paste</button>` : ""}</div>
+        </div>
+        <div class="field"><label for="pname">Product name <span class="muted small">(optional: helps when a store blocks reading its page)</span></label>
+          <input id="pname" placeholder="Brand and model, e.g. Furinno 11055 corner shelf" autocomplete="off"></div>
+        <button class="btn primary" type="submit">Get the setup guide</button>
+      </form>
+      <div id="link-out" aria-live="polite"></div>
+    </div>`;
+  const out = $("#link-out");
+  let timer = null;
+  app.cleanup.push(() => clearTimeout(timer));
+
+  $("#paste")?.addEventListener("click", async () => {
+    try { $("#url").value = (await navigator.clipboard.readText()).trim(); } catch { toast("Your browser didn't allow pasting. Long-press the box and paste."); }
+  });
+
+  async function watch(mid) {
+    const m = await api(`/api/manuals/${mid}`);
+    if (m.status === "processing") {
+      out.innerHTML = `<div class="busy" role="status">${esc(m.progress || "Working")}</div>`;
+      timer = setTimeout(() => watch(mid), 1200);
+      return;
+    }
+    if (m.status === "error") {
+      out.innerHTML = `<section class="verdict unsure"><h3>? Couldn't build a guide from that link</h3><p>${esc(m.error)}</p></section>`;
+      $("#pname").focus();
+      return;
+    }
+    showResult(m);
+  }
+
+  function showResult(m) {
+    const plan = m.plan, src = plan.source || {};
+    const official = src.kind === "manual_pdf";
+    const kindWord = { assembly: "Assembly", device: "Device", training: "Machine" }[m.use_case] || "Guide";
+    out.innerHTML = `
+      <section class="product-card">
+        ${src.image ? `<img src="${esc(src.image)}" alt="" referrerpolicy="no-referrer" loading="lazy" onerror="this.remove()">` : ""}
+        <div class="stack">
+          <p class="pack-brand">${esc(src.retailer || "Online store")}${src.product_id ? ` · ${esc(src.product_id)}` : ""} · ${kindWord}</p>
+          <h3>${esc(plan.product)}</h3>
+          <p class="${official ? "tag ok" : "tag extra"} source-tag">${official ? `Official manual found: ${m.page_count} page${m.page_count === 1 ? "" : "s"} read` : "From the store listing, not the official manual"}</p>
+          ${plan.summary ? `<p class="muted">${esc(plan.summary)}</p>` : ""}
+        </div>
+      </section>
+      ${!official && plan.note ? `<p class="warn">${esc(plan.note)}</p>` : ""}
+      ${plan.needs_manual ? `<section class="verdict unsure"><h3>For the exact steps, add the instructions</h3>
+        <p>The store page doesn't include ${m.use_case === "assembly" ? "the assembly order" : "the full instructions"}. Photograph each page of the paper instructions from the box (or upload the PDF) and ShowMe guides every step.</p>
+        <a class="btn" href="#/assemble?use=${m.use_case}">Add the instructions</a></section>` : ""}
+      <ol class="mini-steps">${plan.steps.map((s) => `<li><strong>${esc(s.title)}.</strong> ${esc(s.instruction)}</li>`).join("")}</ol>
+      <div class="row"><button class="btn primary" id="go" type="button">${m.use_case === "assembly" ? (official ? "Start building" : "Start preparing") : m.use_case === "training" ? "Open the machine guide" : "Open the device guide"}</button>
+        ${src.url ? `<a class="btn quiet" href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">Store page</a>` : ""}</div>`;
+    speak(official ? `Found the official manual for the ${plan.product}.` : `Here's a general setup guide for the ${plan.product}, from the store listing.`);
+    $("#go", out).addEventListener("click", async () => {
+      if (m.use_case !== "assembly") { location.hash = `#/device/${m.id}`; return; }
+      try {
+        const s = await startSession(m.id, null);
+        location.hash = `#/session/${s.id}/${official ? "inventory" : `step/${plan.steps[0].order}`}`;
+      } catch (e) { toast(e.message, "error"); }
+    });
+  }
+
+  $("#link-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = $("#url").value.trim();
+    if (!url) { $("#url").focus(); return; }
+    clearTimeout(timer);
+    busy(out, "Reading the product page");
+    try {
+      const r = await api("/api/links", { method: "POST", json: { url, name: $("#pname").value.trim() } });
+      watch(r.manual_id);
+    } catch (err) {
+      out.innerHTML = `<section class="verdict unsure"><h3>? That link didn't work</h3><p>${esc(err.message)}</p></section>`;
+    }
+  });
+  if (preset) $("#link-form").requestSubmit();
 }
 
 // ---------------------------------------------------------------- start

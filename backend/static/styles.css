@@ -440,3 +440,12 @@ ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(-
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 #scan-result.verdict { display: block; }
 #code { text-transform: uppercase; letter-spacing: .12em; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+/* ---------- bought online: store links */
+.link-cta { margin-top: 12px; font-size: 15px; color: var(--ink-2); }
+.link-cta a { color: var(--ink); font-weight: 650; }
+.product-card { display: flex; gap: 16px; align-items: flex-start; padding: 16px; border: 1.5px solid var(--ink); border-radius: var(--radius-m); background: var(--sheet); }
+.product-card img { width: 96px; height: 96px; object-fit: contain; background: #fff; border-radius: var(--radius-s); border: 1px solid var(--rule); flex: none; }
+.product-card .stack { min-width: 0; }
+.source-tag { display: inline-block; white-space: normal; line-height: 1.35; padding: 4px 10px; }
+#link-out > * + * { margin-top: 14px; }

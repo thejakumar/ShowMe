@@ -57,6 +57,9 @@ def manual_text(store: Store, manual_id: str, plan: dict) -> str:
                 text = (page.get_text("text") or "").strip()
                 if text:
                     chunks.append(f"[page {i + 1}]\n{text}")
+    listing = store.path("manuals", manual_id, "listing.txt")
+    if listing.exists():
+        chunks.append("[store listing, not the manual]\n" + listing.read_text()[:8000])
     plan_bits = {k: plan.get(k) for k in ("product", "summary", "steps", "safety", "warning_lights")}
     return "\n\n".join(chunks) + "\n\n[plan]\n" + json.dumps(plan_bits, ensure_ascii=False)
 

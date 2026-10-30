@@ -20,7 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import UnidentifiedImageError
 from pydantic import BaseModel
 
-from . import animation, car, devices, images as imgs, insights, lessons, mock, passport, sample, sample_device, training
+from . import animation, car, devices, images as imgs, insights, lessons, links, mock, passport, sample, sample_device, training
+from .from_link import build_from_link
 from .config import get_settings
 from .ingest import ingest_manual
 from .muse import MuseClient, MuseError
@@ -164,17 +165,39 @@ async def list_manuals():
     return S.store.manuals()
 
 
+def photos_to_pdf(pages: list[bytes]) -> bytes:
+    """Photos of a paper booklet, one per page, as one PDF in the order given."""
+    images = []
+    for data in pages:
+        try:
+            images.append(imgs.fit(imgs.load(data), 2000).convert("RGB"))
+        except (UnidentifiedImageError, OSError) as exc:
+            raise HTTPException(400, "One of the files isn't a photo or a PDF.") from exc
+    buf = io.BytesIO()
+    images[0].save(buf, format="PDF", save_all=True, append_images=images[1:], resolution=150)
+    return buf.getvalue()
+
+
 @app.post("/api/manuals")
-async def upload_manual(file: UploadFile = File(...), title: str = Form(""), use_case: str = Form("assembly")):
+async def upload_manual(file: list[UploadFile] = File(...), title: str = Form(""), use_case: str = Form("assembly")):
+    """A manual as a PDF, or as photos of the paper booklet's pages (in page order)."""
     if use_case not in USE_CASES:
         raise HTTPException(400, "use_case must be assembly, training, device or car")
-    data = await file.read()
-    if not data.startswith(b"%PDF"):
-        raise HTTPException(400, "Upload the manual as a PDF.")
-    if len(data) > S.settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"The PDF is larger than {S.settings.max_upload_mb} MB.")
+    blobs = [await f.read() for f in file[:60]]
+    limit = S.settings.max_upload_mb * 1024 * 1024
+    if sum(len(b) for b in blobs) > limit:
+        raise HTTPException(413, f"The upload is larger than {S.settings.max_upload_mb} MB.")
+    if len(blobs) == 1 and blobs[0].startswith(b"%PDF"):
+        data = blobs[0]
+    elif blobs and not any(b.startswith(b"%PDF") for b in blobs) and all(
+            (f.content_type or "").startswith("image/") or f.filename.lower().endswith((".jpg", ".jpeg", ".png", ".heic", ".webp"))
+            for f in file[:60]):
+        data = await asyncio.to_thread(photos_to_pdf, blobs)
+    else:
+        raise HTTPException(400, "Upload the manual as one PDF, or as photos of its pages.")
+    first = file[0]
     typed = title.strip()
-    title = typed or re.sub(r"[_-]+", " ", Path(file.filename or "Manual").stem).strip() or "Manual"
+    title = typed or (re.sub(r"[_-]+", " ", Path(first.filename or "Manual").stem).strip() if len(file) == 1 else "") or "Manual"
     mid = S.store.create_manual(title, use_case)
     pdf = S.store.path("manuals", mid, "source.pdf")
     pdf.write_bytes(data)
@@ -234,6 +257,38 @@ async def heads_up(manual_id: str, order: int):
         return await insights.heads_up(S.store, S.muse, S.settings, manual_id, plan, order)
     except KeyError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+# ---------------------------------------------------------------- store links: Amazon, IKEA, any shop
+
+class NewLink(BaseModel):
+    url: str
+    name: str = ""
+
+
+@app.post("/api/links")
+async def from_store_link(body: NewLink):
+    """A product link -> its guide: the official manual when the page links one, else a labeled listing guide."""
+    try:
+        link = links.parse_link(body.url)
+        await links._check_public(link.url)
+    except links.LinkError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    name = body.name.strip()[:160]
+    known = S.store.link(link.key)
+    if known and not name:
+        m = S.store.manual(known["manual_id"])
+        if m and m["status"] in {"ready", "processing"}:
+            return {"manual_id": m["id"], "title": m["title"], "status": m["status"], "retailer": link.retailer,
+                    "product_id": link.product_id, "cached": True}
+    title = name or link.name_hint.title() or (f"{link.retailer} product {link.product_id}".strip() if link.product_id else "Product from a link")
+    mid = S.store.create_manual(title[:120], "device")
+    S.store.save_link(link.key, mid, link.url, link.retailer)
+    task = asyncio.create_task(build_from_link(mid, link, name, store=S.store, muse=S.muse, settings=S.settings))
+    S.tasks.add(task)
+    task.add_done_callback(S.tasks.discard)
+    return {"manual_id": mid, "title": title, "status": "processing", "retailer": link.retailer,
+            "product_id": link.product_id, "cached": False}
 
 
 # ---------------------------------------------------------------- machines and electronic devices

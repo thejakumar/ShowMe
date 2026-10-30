@@ -296,6 +296,70 @@ def ask_prompt(question: str, product: str, controls: list[dict], manual_text: s
     )
 
 
+# ---------------------------------------------------------------- store links (Spark reads, Wonder writes)
+
+LISTING_SYSTEM = (
+    "You read what is known about a product from an online store link and say what the product is. "
+    "Use only the text given. Reply with one JSON object and nothing else."
+)
+
+
+def listing_prompt(listing_text: str) -> str:
+    example = {"is_product": True, "product": "Furinno Turn-N-Tube 5-tier corner shelf", "brand": "Furinno",
+               "model": "11055", "kind": "assembly", "category": "shelf",
+               "summary": "A five-tier corner shelf that assembles with twist tubes and no tools.",
+               "in_the_box": ["5 shelves", "tubes", "feet"]}
+    return (
+        f"{listing_text}\n\n"
+        "kind: assembly for anything the buyer has to put together (furniture, shelves, desks, bikes, grills); "
+        "device for electronics and appliances the buyer sets up and uses; training for work machines and tools. "
+        "product: brand, product and model in plain words, no marketing. in_the_box: only what the text says is "
+        "included. is_product: false if this is not a single product page.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example)}"
+    )
+
+
+LISTING_PLAN_SYSTEM = (
+    "You write a first-time setup guide for one product when the official manual is NOT available, only its "
+    "store listing. A phone camera will check each step, and a beginner follows it with the product in front of "
+    "them. Never invent model-specific details: no button names, menu paths, screw sizes, part letters or "
+    "assembly order unless the listing states them. Use only what the listing says plus steps that are true for "
+    "every product of this type. Reply with one JSON object and nothing else."
+)
+
+
+def listing_plan_prompt(product: str, kind: str, listing_text: str, in_the_box: list[str]) -> str:
+    example = {
+        "product": "Brewline One coffee maker",
+        "summary": "General first-time setup from the store listing. Five steps, about 10 minutes.",
+        "parts": [{"label": "1", "name": "Coffee maker", "quantity": 1, "description": "the machine itself",
+                   "sam_prompt": "small coffee machine"}],
+        "steps": [{"order": 1, "title": "Unbox and check the contents",
+                   "instruction": "Take everything out and lay it on a table next to the box.",
+                   "parts_used": [{"label": "1", "quantity": 1}],
+                   "done_when": "Every item from the box is out on the table and the packaging is removed",
+                   "warning": "", "why": "A missing part is easier to sort out before you start."}],
+        "safety": ["Keep plastic bags away from children."],
+        "tasks": [], "needs_manual": False,
+        "note": "Exact buttons and settings aren't in the listing; the official manual has them.",
+    }
+    rule = ("This product needs assembling. Set needs_manual true. Give only preparation steps (clear a space, open "
+            "the box on a soft surface, lay out and group every part, find the tools the listing names) and end with "
+            "a step to find the printed instructions in the box. Do not write any assembly steps."
+            if kind == "assembly" else
+            "Write 3 to 8 setup steps from unboxing to first use. Only name controls, apps or settings the listing "
+            "itself mentions; otherwise describe generically (\"the power button\"). Set needs_manual true if "
+            "setup clearly depends on details the listing doesn't give.")
+    box = "\n".join(f"- {b}" for b in in_the_box) or "- (not stated)"
+    return (
+        f"Product: {product}\nKind: {kind}\n\nWhat the store listing says:\n{listing_text[:8000]}\n\n"
+        f"In the box (from the listing):\n{box}\n\n{rule}\n"
+        "parts: only items the listing says are included, labeled 1, 2, 3. done_when: visible in one photo. "
+        "tasks: leave empty. note: one sentence on what this guide can't cover without the manual.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example, indent=1)}"
+    )
+
+
 # ---------------------------------------------------------------- concept lessons
 
 ROOM_SYSTEM = (

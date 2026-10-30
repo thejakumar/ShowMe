@@ -526,3 +526,37 @@ class Animation3D(Lenient):
     actions: list[Action3D] = Field(default_factory=list)
     camera: Camera3D = Field(default_factory=Camera3D)
     notes: str = ""
+
+
+# ---------- store links ----------
+
+
+class ListingInfo(Lenient):
+    is_product: bool = True
+    product: str = ""  # a clean name: brand + product + model, no marketing words
+    brand: str = ""
+    model: str = ""
+    kind: Literal["assembly", "device", "training"] = "device"
+    category: str = ""
+    summary: str = ""
+    in_the_box: list[str] = Field(default_factory=list)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _kind(cls, v):
+        v = str(v or "").lower()
+        if v in {"furniture", "assemble", "flat-pack", "flatpack"}:
+            return "assembly"
+        if v in {"machine", "equipment", "tool"}:
+            return "training"
+        return v if v in {"assembly", "device", "training"} else "device"
+
+    @field_validator("in_the_box", mode="before")
+    @classmethod
+    def _box(cls, v):
+        return _str_list(v, 20)
+
+
+class ListingPlan(Plan):
+    needs_manual: bool = False  # True when exact steps need the official instructions (all flat-pack furniture)
+    note: str = ""  # one sentence on what this guide can't cover without the manual
