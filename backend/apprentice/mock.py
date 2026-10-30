@@ -116,30 +116,55 @@ def _check(step: int = 1, attempt: int = 1, **_: Any) -> dict:
                 "observed": "The right side panel B is fitted with its pre-drilled holes facing outward.",
                 "reason": "The holes must face inward so the seat lines up in step 4.",
                 "fix": "Undo the two screws on the right panel, turn it around, and refit it.",
+                "state": "wrong", "progress": 0.3, "done_items": ["Rail C is fixed to the left panel"],
+                "next_steps": ["Undo the two screws on panel B", "Turn panel B so the holes face inward",
+                               "Refit and tighten both screws"],
                 "box": [600, 260, 820, 860]}
     return {"verdict": "pass", "confidence": 0.91, "observed": "The step matches the manual's diagram.",
             "reason": "", "fix": "", "box": None}
 
 
 def _live(step: int = 1, frame: int = 1, **_: Any) -> dict:
-    """A scripted live session: step 3 starts wrong and is fixed over three frames."""
+    """A scripted live session: step 3 starts wrong, and the camera follows the fix as it happens."""
     if step == 3:
         script = [
-            {"verdict": "fail", "confidence": 0.84, "observed": "Panel B on the right has its holes facing outward.",
-             "say": "Turn the right panel around so its holes face inward.", "reason": "The rail can't fit otherwise.",
+            {"verdict": "fail", "confidence": 0.84, "state": "wrong", "progress": 0.3,
+             "observed": "Panel B on the right has its holes facing outward.",
+             "done_items": ["Rail C is in place on the left panel"],
+             "next_steps": ["Undo the two screws on panel B", "Turn panel B so the holes face inward",
+                            "Refit and tighten both screws"],
+             "say": "Stop there. Panel B is backwards; undo its two screws.",
+             "reason": "The rail can't fit if the holes face outward.",
              "fix": "Remove the two screws, turn panel B, refit it.", "box": [600, 260, 820, 860]},
-            {"verdict": "fail", "confidence": 0.8, "observed": "Panel B is turned the right way; screws not yet fitted.",
-             "say": "Good, that's the right way round. Now fit the two screws.", "reason": "",
-             "fix": "Fit the two screws through panel B into rail C.", "box": [620, 420, 780, 600]},
+            {"verdict": "fail", "confidence": 0.8, "state": "fixing", "progress": 0.45,
+             "observed": "Panel B is off and turned around; its holes now face inward.",
+             "done_items": ["Rail C is in place on the left panel", "Panel B turned the right way"],
+             "next_steps": ["Hold panel B against the end of rail C", "Fit the two screws", "Tighten them"],
+             "say": "Good, that's the right way round. Hold it against the rail.",
+             "reason": "", "fix": "Refit panel B with the two screws.", "box": [620, 300, 800, 820]},
+            {"verdict": "fail", "confidence": 0.82, "state": "in_progress", "progress": 0.75,
+             "observed": "Panel B is fitted with the top screw in; the bottom screw is missing.",
+             "done_items": ["Rail C is in place on the left panel", "Panel B turned the right way", "Top screw fitted"],
+             "next_steps": ["Fit the bottom screw", "Tighten both screws with the Allen key"],
+             "say": "Top screw's in. Now the bottom one.",
+             "reason": "", "fix": "Fit the bottom screw.", "box": [640, 640, 760, 760]},
         ]
         if frame <= len(script):
             return script[frame - 1]
-        return {"verdict": "pass", "confidence": 0.9, "observed": "Rail C sits flush with both panels' holes facing inward.",
+        return {"verdict": "pass", "confidence": 0.9, "state": "done", "progress": 1,
+                "observed": "Rail C sits flush with both panels' holes facing inward; all screws tight.",
+                "done_items": ["Panel B turned the right way", "Both screws fitted and tight"], "next_steps": [],
                 "say": "That's it. Step three is done.", "reason": "", "fix": "", "box": None}
+    if step == 4 and frame == 1:
+        return {"verdict": "fail", "confidence": 0.8, "state": "in_progress", "progress": 0.2, "seen_step": 3,
+                "observed": "Panel B is still being fitted to rail C; the seat is not on yet.",
+                "done_items": ["Left panel and rail joined"], "next_steps": ["Finish step 3 first: fit panel B"],
+                "say": "Looks like step three isn't finished yet.", "reason": "", "fix": "", "box": None}
     if frame == 1:
-        return {"verdict": "unsure", "confidence": 0.5, "observed": "Only part of the work is in view.",
+        return {"verdict": "unsure", "confidence": 0.5, "state": "cant_see", "observed": "Only part of the work is in view.",
+                "next_steps": ["Step back so the whole piece is in view"],
                 "say": "Step back a little so I can see the whole thing.", "reason": "", "fix": "", "box": None}
-    return {"verdict": "pass", "confidence": 0.9, "observed": "The step matches the manual's diagram.",
+    return {"verdict": "pass", "confidence": 0.9, "state": "done", "observed": "The step matches the manual's diagram.",
             "say": "Looks right. Step done.", "reason": "", "fix": "", "box": None}
 
 

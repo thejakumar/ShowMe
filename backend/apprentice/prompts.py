@@ -134,6 +134,25 @@ def locate_prompt(targets: list[dict], count_every_instance: bool, has_reference
 
 # ---------------------------------------------------------------- step checking (Spark)
 
+STATE_RULES = (
+    "state is where the work is right now: not_started (nothing of this step done yet), in_progress (partly done, "
+    "nothing wrong so far), fixing (the person is correcting a mistake: parts loosened, removed or being turned), "
+    "wrong (something is done incorrectly and must be undone), done (the done-when condition is clearly met), "
+    "cant_see (the image cannot show it). The work can be half done, or half undone in the middle of a fix: judge "
+    "the state you see, never assume they started from scratch. progress is the share of this step that is done, "
+    "0 to 1. done_items lists what is already right (short). next_steps lists the next 1 to 3 actions in order, "
+    "starting from exactly where the work is now, each under 12 words; empty when done. If the image clearly shows "
+    "a different step of the procedure (they are ahead or behind), put that step's number in seen_step, else null."
+)
+
+
+def _procedure(plan_steps: list[dict] | None, current: int) -> str:
+    if not plan_steps:
+        return ""
+    lines = "\n".join(f"{'>' if s['order'] == current else ' '} {s['order']}. {s['title']}" for s in plan_steps[:40])
+    return f"The whole procedure (> marks this step):\n{lines}\n\n"
+
+
 CHECK_SYSTEM = (
     "You verify one step of a hands-on procedure from a photo of the real work. Judge only what is visible. "
     "Be strict about the done-when condition, but do not fail the step for things that belong to other steps. "
@@ -142,19 +161,24 @@ CHECK_SYSTEM = (
 )
 
 
-def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool) -> str:
+def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, plan_steps: list[dict] | None = None) -> str:
     uses = ", ".join(f"{u['quantity']}x {u['label']} ({parts_lookup.get(u['label'], '')})" for u in step.get("parts_used", []))
-    example = {"verdict": "fail", "confidence": 0.86,
-               "observed": "Panel B is attached with its pre-drilled holes facing outward.",
-               "reason": "The holes must face inward so the rail can be fixed in step 4.",
-               "fix": "Remove the two screws, turn panel B around, and refit it.",
-               "box": [520, 300, 760, 820]}
+    example = {"verdict": "fail", "confidence": 0.86, "state": "in_progress", "progress": 0.5,
+               "observed": "Panel B is fitted with its holes facing inward; only one of two screws is in.",
+               "done_items": ["Panel B faces the right way", "Top screw fitted"],
+               "next_steps": ["Fit the second screw at the bottom of panel B", "Tighten both screws"],
+               "reason": "Both screws are needed or the frame will wobble.",
+               "fix": "Fit and tighten the bottom screw.",
+               "seen_step": None, "box": [520, 300, 760, 820]}
     fig = "The second image is the manual's diagram for this step.\n" if has_figure else ""
     return (
+        f"{_procedure(plan_steps, step['order'])}"
         f"Step {step['order']}: {step['title']}\nInstruction: {step['instruction']}\n"
         f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n\n"
-        f"The first image is a photo of the work after the person did this step. {fig}"
-        "verdict is pass, fail or unsure. box marks the area the person should look at (the problem on a fail).\n\n"
+        f"The first image is a photo of the work. {fig}"
+        "verdict is pass (done), fail (wrong or not finished) or unsure (cannot tell). "
+        "box marks the area the person should look at next (the problem on a mistake).\n"
+        f"{STATE_RULES}\n\n"
         f"Reply in exactly this shape:\n{json.dumps(example)}"
     )
 
@@ -162,30 +186,38 @@ def check_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool) -> 
 LIVE_SYSTEM = (
     "You are a calm, expert coach watching a live camera while a person does one step of a hands-on procedure. "
     "Each message is the newest camera frame. Judge only what is visible. Speak like a person standing beside "
-    "them: one short instruction at a time, about what to do right now. Notice progress and say so briefly. "
-    "If the frame is blurry, too dark or does not show the work, ask them to adjust the camera. "
+    "them: one short instruction at a time, about what to do right now from where the work is. They may be "
+    "partway through, or in the middle of fixing a mistake: notice what is already done, say so briefly, and "
+    "guide the rest. If the frame is blurry, too dark or does not show the work, ask them to adjust the camera. "
     + BOX_RULE + " Reply with one JSON object and nothing else."
 )
 
 
-def live_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, history: list[dict]) -> str:
+def live_prompt(step: dict, parts_lookup: dict[str, str], has_figure: bool, history: list[dict],
+                plan_steps: list[dict] | None = None) -> str:
     uses = ", ".join(f"{u['quantity']}x {u['label']} ({parts_lookup.get(u['label'], '')})" for u in step.get("parts_used", []))
-    example = {"verdict": "fail", "confidence": 0.82,
-               "observed": "Panel B is turned around; its holes face outward.",
-               "say": "Turn panel B around so the holes face inward.",
+    example = {"verdict": "fail", "confidence": 0.82, "state": "fixing", "progress": 0.4,
+               "observed": "Panel B is off and turned around; its holes now face inward.",
+               "done_items": ["Panel B turned the right way"],
+               "next_steps": ["Hold panel B against rail C", "Fit the two screws", "Tighten them with the Allen key"],
+               "say": "Good, that's the right way round. Now hold it against the rail.",
                "reason": "The holes must face inward for the rail to fit.",
-               "fix": "Remove the two screws, turn panel B, and refit it.",
-               "box": [520, 300, 760, 820]}
+               "fix": "Refit panel B with the two screws.",
+               "seen_step": None, "box": [520, 300, 760, 820]}
     recent = "\n".join(f"- {h.get('observed', '')} You said: {h.get('say', '')}" for h in history[-3:]) or "- (first frame)"
     fig = "The second image is the manual's diagram for this step.\n" if has_figure else ""
     return (
+        f"{_procedure(plan_steps, step['order'])}"
         f"Step {step['order']}: {step['title']}\nInstruction: {step['instruction']}\n"
         f"Parts used: {uses or 'none listed'}\nDone when: {step['done_when']}\n\n"
         f"What you saw and said in the last few frames:\n{recent}\n\n"
         f"The first image is the newest camera frame. {fig}"
         "verdict: pass only when the done-when condition is clearly met in this frame; fail when something is wrong "
-        "or not finished yet; unsure when the frame cannot show it. say: at most 14 words, an instruction for right "
-        "now (or a short confirmation on pass); do not repeat your last line word for word. box marks where to look.\n\n"
+        "or not finished yet; unsure when the frame cannot show it.\n"
+        f"{STATE_RULES}\n"
+        "say: at most 14 words, spoken aloud: briefly note progress if there is new progress, then the first of "
+        "next_steps (or a short confirmation when done). Do not repeat your last line word for word. "
+        "box marks where to look or work next.\n\n"
         f"Reply in exactly this shape:\n{json.dumps(example)}"
     )
 

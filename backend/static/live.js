@@ -5,6 +5,7 @@
 import { REDUCED, roundRect } from "./overlay.js";
 
 const FAIL = "#E5484D";
+const NEXT = "#FFC31F"; // where to work next on a half-done step
 const MAX_SIDE = 896;
 
 export function liveSupported() {
@@ -40,6 +41,7 @@ export async function startLive(container, { send, onResult, onError, intervalMs
 
   let running = true;
   let focus = null;
+  let focusColor = FAIL;
   let raf = 0;
   const started = performance.now();
   const grabber = document.createElement("canvas");
@@ -56,7 +58,7 @@ export async function startLive(container, { send, onResult, onError, intervalMs
       const [x0, y0, x1, y1] = focus;
       const pulse = REDUCED ? 0 : (Math.sin((now - started) / 260) + 1) / 2;
       ctx.lineWidth = 3 + pulse * 2;
-      ctx.strokeStyle = FAIL;
+      ctx.strokeStyle = focusColor;
       ctx.setLineDash([10, 6]);
       ctx.beginPath();
       roundRect(ctx, x0 * r.width, y0 * r.height, (x1 - x0) * r.width, (y1 - y0) * r.height, 12);
@@ -96,7 +98,8 @@ export async function startLive(container, { send, onResult, onError, intervalMs
         continue;
       }
       if (!running) break;
-      focus = result.verdict === "fail" ? result.box : null;
+      focus = result.verdict === "fail" || result.verdict === "progress" ? result.box : null;
+      focusColor = result.verdict === "fail" ? FAIL : NEXT;
       badge.textContent = result.verdict === "pass" ? "Done" : "Watching";
       if (onResult(result) === true) { freeze(); break; }
       await sleep(Math.max(500, intervalMs - (performance.now() - t0)));

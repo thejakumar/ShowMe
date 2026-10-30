@@ -131,20 +131,42 @@ def test_rejects_non_pdf(client):
     assert r.status_code == 400
 
 
-def test_live_check_coaches_then_passes(client):
+def test_live_check_follows_a_fix_in_progress(client):
+    """Step 3 starts wrong; the camera follows the fix mid-way and gives next steps from where the work is."""
+    import json
     manual = client.post("/api/manuals/sample").json()
     sid = client.post("/api/sessions", json={"person": "Cara", "manual_id": manual["id"], "mode": "cloud"}).json()["id"]
-    history, verdicts = [], []
-    for frame in (1, 2, 3):
+    history, seen = [], []
+    for frame in (1, 2, 3, 4):
         r = client.post(f"/api/sessions/{sid}/steps/3/live", files={"photo": photo()},
-                        data={"frame": str(frame), "live_id": "run1", "history": __import__("json").dumps(history)}).json()
-        verdicts.append((r["verdict"], r["recorded"]))
+                        data={"frame": str(frame), "live_id": "run1", "history": json.dumps(history)}).json()
+        seen.append((r["verdict"], r["state"], r["recorded"]))
         assert r["say"]
         history.append({"observed": r["observed"], "say": r["say"]})
-    assert verdicts == [("fail", "fail"), ("fail", None), ("pass", "pass")]
+        if r["verdict"] != "pass":
+            assert r["next_steps"], r
+        else:
+            assert r["next_steps"] == [] and r["progress"] == 1.0
+    assert seen == [("fail", "wrong", "fail"), ("progress", "fixing", None),
+                    ("progress", "in_progress", None), ("pass", "done", "pass")]
     results = client.get(f"/api/sessions/{sid}").json()["results"]
-    assert [x["verdict"] for x in results] == ["fail", "pass"]
+    assert [x["verdict"] for x in results] == ["fail", "pass"]  # mid-fix frames are not counted as mistakes
     assert all(x["photo"].startswith("/files/") for x in results)
+
+
+def test_live_check_notices_an_earlier_step(client):
+    manual = client.post("/api/manuals/sample").json()
+    sid = client.post("/api/sessions", json={"person": "Dev", "manual_id": manual["id"], "mode": "cloud"}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/steps/4/live", files={"photo": photo()}, data={"frame": "1"}).json()
+    assert r["verdict"] == "progress" and r["seen_step"]["order"] == 3 and r["seen_step"]["title"]
+
+
+def test_photo_check_gives_next_steps(client):
+    manual = client.post("/api/manuals/sample").json()
+    sid = client.post("/api/sessions", json={"person": "Eli", "manual_id": manual["id"], "mode": "cloud"}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/steps/3/check", files={"photo": photo()}).json()
+    assert r["verdict"] == "fail" and r["state"] == "wrong"
+    assert len(r["next_steps"]) == 3 and r["done_items"]
 
 
 def test_step_animation_generated_and_cached(client):

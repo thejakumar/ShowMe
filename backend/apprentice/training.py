@@ -28,6 +28,47 @@ def step_by_order(plan: dict, order: int) -> Optional[dict]:
     return next((s for s in plan.get("steps", []) if s["order"] == order), None)
 
 
+ACTIVE = {"not_started", "in_progress", "fixing"}
+
+
+def coach_fields(reply: Optional[StepCheckReply], plan: dict, order: int, verdict: str) -> tuple[str, dict]:
+    """Where the work is now and what to do next, plus the final verdict.
+
+    A step that is half done, or half undone in the middle of a fix, is "progress", not a mistake:
+    only a "wrong" state counts as a caught mistake. Returns (verdict, fields).
+    """
+    by_verdict = {"pass": "done", "fail": "wrong", "unsure": "cant_see"}
+    state = (reply.state if reply else "") or by_verdict.get(verdict, "cant_see")
+    if verdict == "pass" and state in ACTIVE:
+        verdict = "progress"  # the model's own state says it is not finished: trust the cautious reading
+    elif verdict == "pass" and state == "wrong":
+        verdict = "fail"
+    elif verdict == "fail" and state in ACTIVE:
+        verdict = "progress"
+    elif verdict == "fail" and state == "done":
+        state = "wrong"
+    elif verdict == "pass":
+        state = "done"
+    progress = reply.progress if reply and reply.progress is not None else (
+        1.0 if state == "done" else 0.0 if state == "not_started" else None)
+    if verdict == "pass":
+        progress = 1.0
+    next_steps = list(reply.next_steps) if reply else []
+    if not next_steps and verdict != "pass" and reply and reply.fix:
+        next_steps = [reply.fix]
+    if verdict == "pass":
+        next_steps = []
+    seen = reply.seen_step if reply else None
+    seen_step = next((st for st in plan.get("steps", []) if st["order"] == seen), None) if seen != order else None
+    return verdict, {
+        "state": state,
+        "progress": None if progress is None else round(progress, 2),
+        "done_items": list(reply.done_items) if reply else [],
+        "next_steps": next_steps[:3],
+        "seen_step": {"order": seen_step["order"], "title": seen_step["title"]} if seen_step else None,
+    }
+
+
 async def inventory(img: Image.Image, plan: dict, *, vision: Vision, settings: Settings, private: bool,
                     reference: Optional[Image.Image], ctx: dict) -> dict:
     """One photo of all the parts -> every instance found, labeled and counted against the parts list."""
@@ -84,7 +125,9 @@ async def check_step(img: Image.Image, plan: dict, order: int, figure: Optional[
         absent = [lab for lab in labels if lab not in seen]
         conf = min([d["confidence"] for d in dets] or [0.0])
         verdict = "pass" if not absent else "unsure"
+        verdict, coach = coach_fields(None, plan, order, verdict)
         return {
+            **coach,
             "verdict": verdict, "confidence": round(conf * 0.8, 2), "method": "local parts check",
             "observed": f"Found {', '.join(sorted(seen)) or 'none'} of the step's parts.",
             "reason": "" if not absent else f"Could not clearly see part(s) {', '.join(absent)}.",
@@ -96,14 +139,16 @@ async def check_step(img: Image.Image, plan: dict, order: int, figure: Optional[
     images = [img] + ([figure] if figure is not None else [])
     reply = await muse.json(
         role="spark", purpose="step_check", system=prompts.CHECK_SYSTEM,
-        text=prompts.check_prompt(step, parts_lookup, figure is not None), images=images,
+        text=prompts.check_prompt(step, parts_lookup, figure is not None, plan.get("steps")), images=images,
         schema=StepCheckReply, effort=settings.check_effort, ctx=ctx,
         mock_args={"step": order, "attempt": attempt},
     )
     verdict = reply.verdict
     if verdict != "unsure" and reply.confidence < settings.min_confidence:
         verdict = "unsure"
+    verdict, coach = coach_fields(reply, plan, order, verdict)
     return {
+        **coach,
         "verdict": verdict, "confidence": round(float(reply.confidence), 2), "method": "Muse Spark",
         "observed": reply.observed, "reason": reply.reason, "fix": reply.fix,
         "box": [v / 1000 for v in reply.box] if reply.box else None, "detections": [],
@@ -128,16 +173,21 @@ async def live_check(img: Image.Image, plan: dict, order: int, figure: Optional[
     images = [img] + ([figure] if figure is not None else [])
     reply = await muse.json(
         role="spark", purpose="live_check", system=prompts.LIVE_SYSTEM,
-        text=prompts.live_prompt(step, parts_lookup, figure is not None, history), images=images,
+        text=prompts.live_prompt(step, parts_lookup, figure is not None, history, plan.get("steps")), images=images,
         schema=StepCheckReply, effort=settings.live_effort, ctx=ctx,
         mock_args={"step": order, "frame": frame},
     )
     verdict = reply.verdict
     if verdict == "pass" and reply.confidence < settings.live_pass_confidence:
         verdict = "unsure"  # live mode needs a confident pass before it moves on
+    verdict, coach = coach_fields(reply, plan, order, verdict)
+    if verdict == "unsure" and coach["state"] == "done":
+        coach["state"] = "in_progress"  # looks done but not certain yet: keep watching
+    say = reply.say or (coach["next_steps"][0] if coach["next_steps"] else "") or reply.fix or reply.observed
     return {
+        **coach,
         "verdict": verdict, "confidence": round(float(reply.confidence), 2), "method": "Muse Spark, live",
         "observed": reply.observed, "reason": reply.reason, "fix": reply.fix,
-        "say": reply.say or reply.fix or reply.observed,
+        "say": say,
         "box": [v / 1000 for v in reply.box] if reply.box else None, "detections": [],
     }

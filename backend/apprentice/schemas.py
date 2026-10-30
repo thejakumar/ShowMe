@@ -189,6 +189,54 @@ class StepCheckReply(Boxed):
     reason: str = ""
     fix: str = ""
     say: str = ""  # live mode: one short instruction to speak right now
+    # Where the work is right now, so a half-done or mid-fix step gets "next steps from here".
+    state: str = ""  # not_started | in_progress | fixing | wrong | done | cant_see
+    progress: Optional[float] = None  # 0..1 share of the step that is done
+    done_items: list[str] = Field(default_factory=list)  # what is already right
+    next_steps: list[str] = Field(default_factory=list)  # 1-3 actions, in order, starting from now
+    seen_step: Optional[int] = None  # a different step the frame clearly shows (ahead or behind)
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _state(cls, v):
+        s = re.sub(r"[\s-]+", "_", str(v or "").strip().lower())
+        aliases = {"complete": "done", "completed": "done", "finished": "done", "partial": "in_progress",
+                   "partly_done": "in_progress", "started": "in_progress", "mistake": "wrong", "error": "wrong",
+                   "incorrect": "wrong", "correcting": "fixing", "undoing": "fixing", "unclear": "cant_see",
+                   "unsure": "cant_see", "not_visible": "cant_see", "cannot_see": "cant_see"}
+        s = aliases.get(s, s)
+        return s if s in {"not_started", "in_progress", "fixing", "wrong", "done", "cant_see"} else ""
+
+    @field_validator("progress", mode="before")
+    @classmethod
+    def _progress(cls, v):
+        try:
+            p = float(str(v).rstrip("%")) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+        if p is None:
+            return None
+        if p > 1:
+            p /= 100
+        return max(0.0, min(1.0, p))
+
+    @field_validator("done_items", "next_steps", mode="before")
+    @classmethod
+    def _lines(cls, v):
+        if isinstance(v, str):
+            v = [x for x in re.split(r"\n|;\s*", v)]
+        if not isinstance(v, list):
+            return []
+        out = [re.sub(r"^\s*(\d+[.)]|[-*•])\s*", "", str(x)).strip() for x in v if x]
+        return [x for x in out if x][:5]
+
+    @field_validator("seen_step", mode="before")
+    @classmethod
+    def _seen(cls, v):
+        try:
+            return int(v) if v not in (None, "", 0, "0") else None
+        except (TypeError, ValueError):
+            return None
 
 
 class RoomObject(Boxed):

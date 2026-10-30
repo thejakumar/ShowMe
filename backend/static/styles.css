@@ -225,11 +225,32 @@ button.capture { width: 100%; cursor: pointer; font: inherit; color: inherit; }
   background: rgba(14, 18, 17, .84); color: #fff;
 }
 .coach .say { font-size: 19px; font-weight: 650; line-height: 1.3; font-stretch: 105%; }
-.coach .meta { margin-top: 4px; color: rgba(255, 255, 255, .72); }
+.coach .meta { margin-top: 4px; color: rgba(255, 255, 255, .72);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 520px) { .coach { padding: 8px 12px; } .coach .say { font-size: 17px; } .coach .meta { -webkit-line-clamp: 1; font-size: 13px; } }
 @media (min-width: 760px) { .coach .say { font-size: 22px; } }
 .coach.fail { border-left-color: var(--fail); }
 .coach.pass { border-left-color: var(--pass); }
 .coach.unsure { border-left-color: var(--unsure); }
+.coach.progress { border-left-color: var(--hivis); }
+.coach .meter { height: 5px; margin-top: 8px; border-radius: 999px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+.coach .meter span { display: block; height: 100%; width: 0; background: var(--hivis); transition: width .5s ease; }
+@media (prefers-reduced-motion: reduce) { .coach .meter span { transition: none; } }
+.coach-plan { margin-top: 12px; padding: 14px 16px; border: 1.5px solid var(--ink); border-radius: var(--radius-m); background: var(--sheet); }
+.coach-plan h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 0 0 6px; }
+.coach-plan h4 + ol, .coach-plan h4 + ul { margin-bottom: 12px; }
+.coach-plan > :last-child { margin-bottom: 0; }
+ol.next { margin: 0; padding-left: 22px; }
+ol.next li { padding: 2px 0; }
+ol.next li:first-child { font-weight: 650; }
+ol.next li:first-child::marker { color: var(--ink); }
+ul.done { list-style: none; margin: 0; padding: 0; color: var(--ink-2); }
+ul.done li { padding: 2px 0 2px 24px; position: relative; }
+ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(--pass); font-weight: 700; }
+.jump { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px;
+  padding: 10px 12px; border-radius: var(--radius-s); background: var(--unsure-bg); color: var(--ink); }
+.verdict .jump { margin: 12px 0 0; }
+.verdict .pct { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 
 /* ---------- counts table */
 .counts { width: 100%; border-collapse: collapse; font-size: 15px; }
@@ -243,10 +264,10 @@ button.capture { width: 100%; cursor: pointer; font: inherit; color: inherit; }
 .tag.extra { background: var(--unsure-bg); color: var(--unsure); }
 
 /* ---------- step */
-.progress { display: grid; grid-auto-flow: column; gap: 4px; margin-bottom: 18px; }
-.progress span { height: 6px; border-radius: 3px; background: var(--rule); }
-.progress span.done { background: var(--ink); }
-.progress span.now { background: var(--hivis); outline: 1.5px solid var(--hivis-ink); }
+.stepbar { display: grid; grid-auto-flow: column; gap: 4px; margin-bottom: 18px; }
+.stepbar span { height: 6px; border-radius: 3px; background: var(--rule); }
+.stepbar span.done { background: var(--ink); }
+.stepbar span.now { background: var(--hivis); outline: 1.5px solid var(--hivis-ink); }
 .step-head { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: end; }
 .step-no { font-size: 76px; font-weight: 800; font-stretch: 125%; line-height: .8; letter-spacing: -.04em; }
 .figure { border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: #fff; padding: 6px; }
@@ -265,6 +286,8 @@ button.capture { width: 100%; cursor: pointer; font: inherit; color: inherit; }
 .verdict.fail h3 { color: var(--fail); }
 .verdict.unsure { background: var(--unsure-bg); border-color: var(--unsure); }
 .verdict.unsure h3 { color: var(--unsure); }
+.verdict.progress { background: var(--sheet); border-color: var(--hivis); border-left-width: 6px; }
+.verdict.progress h3 { color: var(--ink); }
 .verdict dl { margin: 10px 0 0; display: grid; gap: 6px; }
 .verdict dt { font-weight: 650; font-size: 14px; }
 .verdict dd { margin: 0 0 6px; }

@@ -53,6 +53,11 @@ function takePhoto() {
   });
 }
 
+const STATE_NAMES = {
+  not_started: "Not started", in_progress: "In progress", fixing: "Fixing it",
+  wrong: "Something's wrong", done: "Done", cant_see: "Can't see it",
+};
+
 function speak(text) {
   if (!app.voice || !("speechSynthesis" in window) || !text) return;
   speechSynthesis.cancel();
@@ -257,7 +262,7 @@ async function sessionView([sid, stage = "inventory", n]) {
 function progressBar(plan, current) {
   // segment 0 is the parts check; then one per step
   const total = plan.steps.length + 1;
-  return `<div class="progress" aria-label="Progress">${Array.from({ length: total }, (_, i) =>
+  return `<div class="stepbar" aria-label="Progress">${Array.from({ length: total }, (_, i) =>
     `<span class="${i < current ? "done" : i === current ? "now" : ""}"></span>`).join("")}</div>`;
 }
 
@@ -508,7 +513,7 @@ function stepStage(session, plan, order) {
     form.append("photo", file);
     try {
       const r = await api(`/api/sessions/${session.id}/steps/${step.order}/check`, { method: "POST", form });
-      showShot(r.image, `Attempt ${r.attempt}`).show(r.detections || [], { focus: r.verdict === "fail" ? r.box : null });
+      showShot(r.image, `Attempt ${r.attempt}`).show(r.detections || [], { focus: r.verdict === "fail" || r.verdict === "progress" ? r.box : null });
       showVerdict(r);
     } catch (e) { area.innerHTML = ""; toast(e.message, "error"); }
   };
@@ -522,7 +527,12 @@ function stepStage(session, plan, order) {
     coach.className = "coach";
     coach.setAttribute("aria-live", "polite");
     coach.innerHTML = `<p class="say">Point the camera at your work.</p>
-      <p class="meta">${app.mode === "hybrid" ? "Checking on your own hardware" : "Muse Spark"} looks every couple of seconds and tells you what to do next.</p>`;
+      <div class="meter" hidden><span></span></div>
+      <p class="meta">${app.mode === "hybrid" ? "Checking on your own hardware" : "Muse Spark"} looks every couple of seconds and tells you what to do next. Start anywhere: half done or mid-fix is fine.</p>`;
+    const plan_ = document.createElement("section");
+    plan_.className = "coach-plan";
+    plan_.setAttribute("aria-live", "polite");
+    plan_.hidden = true;
     const liveId = Math.random().toString(36).slice(2);
     const history = [];
     let lastSay = "";
@@ -541,10 +551,14 @@ function stepStage(session, plan, order) {
         onResult: (r) => {
           coach.className = `coach ${r.verdict}`;
           coach.querySelector(".say").textContent = r.say || r.observed || "Hold steady.";
-          coach.querySelector(".meta").textContent = r.observed && r.observed !== r.say ? r.observed : `Frame ${r.frame}`;
+          coach.querySelector(".meta").textContent = `${STATE_NAMES[r.state] || ""}${r.observed && r.observed !== r.say ? ` · ${r.observed}` : ""}`;
+          const meter = coach.querySelector(".meter");
+          meter.hidden = r.progress == null;
+          if (r.progress != null) meter.firstElementChild.style.width = `${Math.round(r.progress * 100)}%`;
+          paintPlan(plan_, r);
           if (r.say && r.say !== lastSay) { speak(r.say); lastSay = r.say; }
           history.push({ observed: r.observed, say: r.say });
-          if (r.verdict === "pass") { showVerdict(r); return true; }
+          if (r.verdict === "pass") { plan_.hidden = true; showVerdict(r); return true; }
           return false;
         },
         onError: (e) => { coach.querySelector(".meta").textContent = `That frame didn't go through (${e.message}). Trying again.`; },
@@ -555,6 +569,7 @@ function stepStage(session, plan, order) {
       return check();
     }
     live.figure.append(coach); // the instruction sits on the video, where the person is looking
+    live.figure.after(plan_); // what's done and what's next, under the video
     app.cleanup.push(stop);
     dock.innerHTML = `<button class="btn" id="photo" type="button">Use a photo instead</button><button class="btn primary" id="stop" type="button">Stop the camera</button>`;
     $("#stop", dock).addEventListener("click", () => { stop(); render(); });
@@ -566,26 +581,45 @@ function stepStage(session, plan, order) {
     $("#check").title = "Live camera needs https or localhost; this opens your camera app for a photo instead.";
   }
 
+  // Where the work is: what's already right, the next actions from here, and a jump if they're on another step.
+  function paintPlan(box, r) {
+    const done = r.done_items || [], todo = r.next_steps || [];
+    const jump = r.seen_step && r.seen_step.order !== step.order ? r.seen_step : null;
+    box.hidden = !done.length && !todo.length && !jump;
+    if (box.hidden) { box.innerHTML = ""; return; }
+    const ahead = jump && jump.order > step.order;
+    box.innerHTML = `
+      ${jump ? `<p class="jump">${ahead ? "You look ahead of this step:" : "This looks like an earlier step:"} step ${jump.order}, ${esc(jump.title)}. <a class="btn" href="#/session/${session.id}/step/${jump.order}">Go to step ${jump.order}</a></p>` : ""}
+      ${todo.length ? `<h4>Next</h4><ol class="next">${todo.map((t) => `<li>${esc(t)}</li>`).join("")}</ol>` : ""}
+      ${done.length ? `<h4>Already done</h4><ul class="done">${done.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}`;
+  }
+
   const next = last ? `#/session/${session.id}/done` : `#/session/${session.id}/step/${plan.steps[idx + 1].order}`;
   const nextLabel = last ? "Finish" : `Next: step ${plan.steps[idx + 1].order}`;
 
   function showVerdict(r) {
-    const heads = { pass: "Step checked", fail: "Not yet", unsure: "Not sure from this photo" };
+    const heads = { pass: "Step checked", fail: "Not right yet", progress: "On the way", unsure: "Not sure from this photo" };
+    const icons = { pass: "✓", fail: "!", progress: "→", unsure: "?" };
+    const todo = r.verdict === "pass" ? [] : (r.next_steps || []);
     verdictBox.innerHTML = `
       <section class="verdict ${r.verdict}" aria-live="polite">
-        <h3>${r.verdict === "pass" ? "✓" : r.verdict === "fail" ? "!" : "?"} ${heads[r.verdict]}</h3>
+        <h3>${icons[r.verdict] || "?"} ${heads[r.verdict] || heads.unsure}${r.progress != null && r.verdict !== "pass" ? ` <span class="pct">${Math.round(r.progress * 100)}% done</span>` : ""}</h3>
         <dl>
           ${r.observed ? `<dt>What the camera sees</dt><dd>${esc(r.observed)}</dd>` : ""}
+          ${r.done_items?.length && r.verdict !== "pass" ? `<dt>Already done</dt><dd><ul class="done">${r.done_items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></dd>` : ""}
+          ${todo.length ? `<dt>Next, from where you are</dt><dd><ol class="next">${todo.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></dd>` : r.fix ? `<dt>How to fix it</dt><dd>${esc(r.fix)}</dd>` : ""}
           ${r.reason ? `<dt>Why it matters</dt><dd>${esc(r.reason)}</dd>` : ""}
-          ${r.fix ? `<dt>How to fix it</dt><dd>${esc(r.fix)}</dd>` : ""}
         </dl>
+        ${r.seen_step && r.seen_step.order !== step.order ? `<p class="jump">This photo looks like step ${r.seen_step.order}, ${esc(r.seen_step.title)}. <a class="btn" href="#/session/${session.id}/step/${r.seen_step.order}">Go to step ${r.seen_step.order}</a></p>` : ""}
         <p class="meta">${esc(r.method)}, confidence ${Math.round(r.confidence * 100)}%</p>
       </section>`;
     if (r.verdict === "pass") {
       speak(last ? "All steps checked. Nice work." : "Step checked. On to the next one.");
       dock.innerHTML = `<a class="btn primary" href="${next}">${nextLabel}</a>`;
-    } else if (r.verdict === "fail") {
-      speak(`Not yet. ${r.reason} ${r.fix}`);
+    } else if (r.verdict === "fail" || r.verdict === "progress") {
+      speak(r.verdict === "progress"
+        ? `Good progress. Next: ${todo[0] || r.fix || "keep going"}`
+        : `Not yet. ${r.reason} ${todo[0] ? `First: ${todo[0]}` : r.fix}`);
       dock.innerHTML = `<button class="btn primary" id="again" type="button">Check again</button>`;
       $("#again", dock).addEventListener("click", check);
     } else {

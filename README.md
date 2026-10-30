@@ -31,6 +31,8 @@ macOS or Linux: `./run.sh`.
 
 **Check my work** opens a live camera view. About every two seconds a frame goes to Muse Spark, which replies with one short instruction for right now. The app shows it on the video and reads it aloud ("Turn panel B around so the holes face inward", then "Good, now fit the two screws"), outlining the problem area. It remembers its last few lines, so it can say "good, now…" as you fix things. When the step is clearly right (confidence at least `LIVE_PASS_CONFIDENCE`, default 0.75), it stops, keeps the passing frame on screen, and moves you on. The first mistake it sees and the final pass are saved to the passport with their frames.
 
+**Start anywhere.** The camera judges where the work is right now, not where the manual starts: not started, in progress, in the middle of fixing a mistake, wrong, or done. It shows what's already right, a progress meter, and the next one to three actions from exactly that point ("Top screw's in. Now the bottom one."). Half-done and mid-fix frames count as progress, not mistakes; only a real error is logged as a caught mistake. If the camera sees that you're actually on a different step, it offers to jump there. Photo checks give the same "already done / next from here" breakdown.
+
 Browsers allow live camera only on `localhost` or https. On the PC it works with the webcam. On a phone, use the https tunnel above; over plain Wi-Fi the button falls back to taking a photo.
 
 ### 3D and AR: see how to do the step
