@@ -413,3 +413,33 @@ def test_upload_photos_of_a_paper_booklet(client):
     r = client.post("/api/manuals", files=files, data={"use_case": "device", "title": "Desk fan"}).json()
     m = wait_any(client, r["id"])
     assert m["status"] == "ready" and m["page_count"] == 3
+
+
+def test_short_link_name_and_mobile_retry(client, fake_web):
+    import httpx
+    from apprentice import links
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers["user-agent"])
+        url = str(request.url)
+        if "a.co/d/" in url:
+            return httpx.Response(301, headers={"location": "https://www.amazon.com/Brewline-One-Coffee-Maker/dp/B0BREW0001?ref_=x"})
+        if "iPhone" in request.headers["user-agent"]:
+            return httpx.Response(200, text=AMAZON_WITH_MANUAL.replace("stool-manual.pdf", "none.html"), headers={"content-type": "text/html"})
+        return httpx.Response(503, text=ROBOT, headers={"content-type": "text/html"})
+
+    links.TRANSPORT = httpx.MockTransport(handler)
+    listing = __import__("asyncio").run(links.fetch_listing(links.parse_link("https://a.co/d/0iUSuCRw")))
+    assert listing.title.startswith("Birch Step Stool") and listing.product_id == "B0BREW0001"
+    assert any("iPhone" in ua for ua in seen) and any("Windows" in ua for ua in seen)
+
+    def always_blocked(request):
+        if "a.co/d/" in str(request.url):
+            return httpx.Response(301, headers={"location": "https://www.amazon.com/Brewline-One-Coffee-Maker/dp/B0BREW0001"})
+        return httpx.Response(503, text=ROBOT, headers={"content-type": "text/html"})
+
+    links.TRANSPORT = httpx.MockTransport(always_blocked)
+    r = client.post("/api/links", json={"url": "https://a.co/d/0iUSuCRw"}).json()
+    m = wait_any(client, r["manual_id"])
+    assert m["status"] == "ready" and m["plan"]["source"]["product_id"] == "B0BREW0001", m

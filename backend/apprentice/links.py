@@ -84,6 +84,7 @@ class Listing:
     manual_links: list[dict] = field(default_factory=list)
     blocked: bool = False
     error: str = ""
+    name_hint: str = ""  # the product name in the page's real address (short links redirect to it)
 
     def as_text(self, name_hint: str = "", typed_name: str = "") -> str:
         parts = [f"Store: {self.retailer or 'unknown'}", f"Link: {self.final_url or self.url}"]
@@ -213,12 +214,27 @@ async def _get(client: httpx.AsyncClient, url: str, limit: int) -> tuple[httpx.R
     raise LinkError("The link redirected too many times.")
 
 
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=TRANSPORT, timeout=20, follow_redirects=False,
-        headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
-                 "Accept-Language": "en-US,en;q=0.9"},
-    )
+# Stores serve product pages to browsers; these are the headers a normal visit sends. When a store still
+# answers with a bot wall, the page is tried once more the way a phone browser asks for it.
+DESKTOP = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    "sec-ch-ua-mobile": "?0", "sec-ch-ua-platform": '"Windows"',
+}
+MOBILE = {
+    "User-Agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+                   "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def _client(headers: Optional[dict] = None) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=TRANSPORT, timeout=20, follow_redirects=False, headers=headers or DESKTOP)
 
 
 # ---------------------------------------------------------------- reading the page
@@ -386,8 +402,19 @@ def read_page(html: str, url: str) -> dict:
 
 
 async def fetch_listing(link: Link) -> Listing:
-    out = Listing(url=link.url, retailer=link.retailer, product_id=link.product_id)
-    async with _client() as client:
+    out = await _fetch_once(link, DESKTOP)
+    if out.blocked and not out.manual_links:
+        retry = await _fetch_once(link, MOBILE)
+        if not retry.blocked or retry.title:
+            return retry
+        out.name_hint = out.name_hint or retry.name_hint
+        out.product_id = out.product_id or retry.product_id
+    return out
+
+
+async def _fetch_once(link: Link, headers: dict) -> Listing:
+    out = Listing(url=link.url, retailer=link.retailer, product_id=link.product_id, name_hint=link.name_hint)
+    async with _client(headers) as client:
         try:
             r, body, final = await _get(client, link.url, MAX_HTML)
         except LinkError:
@@ -400,6 +427,7 @@ async def fetch_listing(link: Link) -> Listing:
         real = parse_link(final)
         out.retailer = real.retailer or out.retailer
         out.product_id = real.product_id or out.product_id
+        out.name_hint = out.name_hint or real.name_hint
     ctype = r.headers.get("content-type", "")
     if "pdf" in ctype or body[:4] == b"%PDF":
         out.manual_links = [{"url": final, "label": "The link itself is a PDF", "score": 9}]

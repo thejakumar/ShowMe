@@ -29,8 +29,9 @@ async def build_from_link(manual_id: str, link: links.Link, typed_name: str, *, 
     try:
         store.update_manual(manual_id, progress=f"Reading the {link.retailer or 'store'} page")
         listing = await links.fetch_listing(link)
-        text = listing.as_text(link.name_hint, typed_name)
-        if not (listing.title or link.name_hint or typed_name or listing.manual_links):
+        hint = link.name_hint or listing.name_hint
+        text = listing.as_text(hint, typed_name)
+        if not (listing.title or hint or typed_name or listing.manual_links):
             why = ("The store blocked ShowMe from reading the page" if listing.blocked
                    else listing.error or "The page had no product details")
             raise MuseError(f"{why}. Type the product name (brand and model) and try again.")
@@ -43,7 +44,7 @@ async def build_from_link(manual_id: str, link: links.Link, typed_name: str, *, 
         if not info.is_product:
             raise MuseError("That page doesn't look like a single product. Paste the product's own page.")
         kind = info.kind
-        product = (info.product or typed_name or listing.title or link.name_hint or "Product")[:120]
+        product = (info.product or typed_name or listing.title or hint or "Product")[:120]
         source = {"kind": "listing", "url": listing.final_url or link.url, "retailer": listing.retailer or link.retailer,
                   "product_id": listing.product_id or link.product_id, "image": listing.image,
                   "blocked": listing.blocked, "manual_url": None, "brand": info.brand, "model": info.model}
