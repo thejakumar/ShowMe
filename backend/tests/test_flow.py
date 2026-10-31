@@ -443,3 +443,32 @@ def test_short_link_name_and_mobile_retry(client, fake_web):
     r = client.post("/api/links", json={"url": "https://a.co/d/0iUSuCRw"}).json()
     m = wait_any(client, r["manual_id"])
     assert m["status"] == "ready" and m["plan"]["source"]["product_id"] == "B0BREW0001", m
+
+
+def test_where_am_i_picks_up_midway(client):
+    mid = ready_sample(client)
+    sid = client.post("/api/sessions", json={"person": "Jo", "manual_id": mid}).json()["id"]
+    r = client.post(f"/api/sessions/{sid}/where", files={"photo": photo()}).json()
+    assert r["done_steps"] == [1, 2, 3] and r["current_step"] == 4 and r["current_title"] == "Fit the seat"
+    assert r["recorded_passes"] == [1, 2, 3] and r["next_steps"] and r["say"]
+    results = client.get(f"/api/sessions/{sid}").json()["results"]
+    assert sorted(x["step_order"] for x in results if x["final"] == "pass") == [1, 2, 3]
+    again = client.post(f"/api/sessions/{sid}/where", files={"photo": photo()}).json()
+    assert again["recorded_passes"] == []  # already checked off: nothing logged twice
+    hyb = client.post("/api/sessions", json={"person": "Kim", "manual_id": mid, "mode": "hybrid"}).json()["id"]
+    assert client.post(f"/api/sessions/{hyb}/where", files={"photo": photo()}).status_code == 409
+
+
+def test_where_am_i_puts_an_earlier_mistake_first():
+    import asyncio
+    sys.path.insert(0, str(ROOT / "backend"))
+    from apprentice import sample, training
+    from apprentice.config import Settings
+
+    class FakeMuse:
+        async def json(self, **kw):
+            return kw["schema"].model_validate({"done_steps": [1, 2, 3], "current_step": 4, "confidence": 0.9,
+                                                "wrong": [{"step": 2, "observed": "dowels in the outer face", "fix": "move them"}]})
+
+    r = asyncio.run(training.resume(None, sample.sample_plan(), None, muse=FakeMuse(), settings=Settings(), ctx={}))
+    assert r["current_step"] == 2 and 2 not in r["done_steps"] and r["wrong"][0]["title"]

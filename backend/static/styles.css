@@ -449,3 +449,26 @@ ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(-
 .product-card .stack { min-width: 0; }
 .source-tag { display: inline-block; white-space: normal; line-height: 1.35; padding: 4px 10px; }
 #link-out > * + * { margin-top: 14px; }
+
+/* ---------- free step navigation + where am I */
+.stepbar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-bottom: 18px; }
+.stepbar > a, .stepbar > span { display: block; height: 10px; border-radius: 4px; background: var(--rule); position: relative; }
+.stepbar > a::after { content: ""; position: absolute; inset: -10px 0; } /* bigger tap target */
+.stepbar > a:hover { background: color-mix(in srgb, var(--ink) 35%, var(--rule)); }
+.stepbar > .done { background: var(--ink); }
+.stepbar > .bad { background: var(--fail); }
+.stepbar > .now { background: var(--hivis); outline: 1.5px solid var(--hivis-ink); }
+.all-steps { border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: var(--sheet); }
+.all-steps summary { cursor: pointer; padding: 10px 14px; font-weight: 650; }
+.all-steps ol { list-style: none; margin: 0; padding: 0 6px 8px; display: grid; gap: 2px; }
+.all-steps li a { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: var(--radius-s); color: inherit; text-decoration: none; }
+.all-steps li a:hover { background: color-mix(in srgb, var(--ink) 6%, var(--sheet)); }
+.all-steps li.here a { background: var(--unsure-bg); }
+.all-steps .mark { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700;
+  border: 1.5px solid var(--ink-2); color: var(--ink-2); }
+.all-steps .mark.pass { background: var(--pass); border-color: var(--pass); color: #fff; }
+.all-steps .mark.fail { background: var(--fail); border-color: var(--fail); color: #fff; }
+.all-steps .mark.progress { background: var(--hivis); border-color: var(--hivis-ink); color: var(--hivis-ink); }
+.whereami h4 { margin: 10px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.whereami p + p { margin-top: 6px; }
+.capture-row { margin-top: 10px; }

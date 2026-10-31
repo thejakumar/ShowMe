@@ -455,7 +455,23 @@ def _listing_plan(kind: str = "device", product: str = "", **_: Any) -> dict:
             "note": "Exact buttons and settings aren't in the listing; the official manual has them."}
 
 
+def _where(plan: dict | None = None, **_: Any) -> dict:
+    orders = [st["order"] for st in (plan or {}).get("steps", [])]
+    if (plan or {}).get("product") == sample.PRODUCT:
+        return {"observed": "Both side panels are joined by rail C; the seat is not on yet.",
+                "done_steps": [1, 2, 3], "current_step": 4, "wrong": [],
+                "done_items": ["Seat A is next to the frame, holes facing down"],
+                "next_steps": ["Lower seat A onto the top dowels", "Fix it with four screws E"],
+                "say": "You've done steps one to three. Next, fit the seat.", "confidence": 0.84,
+                "box": [300, 120, 700, 420]}
+    cur = orders[1] if len(orders) > 1 else (orders[0] if orders else None)
+    return {"observed": "Part of the work is done.", "done_steps": orders[:1], "current_step": cur, "wrong": [],
+            "next_steps": ["Carry on with the next step"], "say": "Step one looks done. Carry on from step two.",
+            "confidence": 0.8}
+
+
 HANDLERS = {
+    "where_am_i": _where,
     "listing_read": _listing,
     "listing_plan": _listing_plan,
     "controls_tour": _tour,

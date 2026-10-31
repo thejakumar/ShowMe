@@ -127,3 +127,34 @@ export async function startLive(container, { send, onResult, onError, intervalMs
 
   return { figure, stop: stopStream, freeze };
 }
+
+// One picture from the camera, taken when the person presses the button. Resolves a Blob, or null if cancelled.
+export async function captureFrame(container, { label = "Take the picture" } = {}) {
+  const figure = document.createElement("figure");
+  figure.className = "shot live";
+  const video = document.createElement("video");
+  video.playsInline = true; video.muted = true; video.autoplay = true;
+  video.setAttribute("aria-label", "Camera view");
+  const row = document.createElement("div");
+  row.className = "row capture-row";
+  row.innerHTML = `<button class="btn primary" type="button" data-act="take">${label}</button><button class="btn" type="button" data-act="cancel">Cancel</button>`;
+  figure.append(video);
+  container.append(figure, row);
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1600 }, height: { ideal: 1200 } }, audio: false,
+  });
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  figure.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" });
+  return new Promise((resolve) => {
+    const done = (blob) => { stream.getTracks().forEach((t) => t.stop()); figure.remove(); row.remove(); resolve(blob); };
+    row.querySelector('[data-act="cancel"]').addEventListener("click", () => done(null));
+    row.querySelector('[data-act="take"]').addEventListener("click", () => {
+      const c = document.createElement("canvas");
+      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      c.width = Math.round(video.videoWidth * scale); c.height = Math.round(video.videoHeight * scale);
+      c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
+      c.toBlob((b) => done(b), "image/jpeg", 0.88);
+    });
+  });
+}

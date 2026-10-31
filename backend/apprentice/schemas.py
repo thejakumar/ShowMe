@@ -560,3 +560,47 @@ class ListingInfo(Lenient):
 class ListingPlan(Plan):
     needs_manual: bool = False  # True when exact steps need the official instructions (all flat-pack furniture)
     note: str = ""  # one sentence on what this guide can't cover without the manual
+
+
+# ---------- where am I: one photo of work in progress against the whole procedure ----------
+
+
+class StepIssue(Boxed):
+    step: int = 0
+    observed: str = ""
+    fix: str = ""
+
+
+class ResumeReply(Boxed):
+    observed: str = ""
+    current_step: Optional[int] = None  # the step the person should do now (None: can't tell)
+    done_steps: list[int] = Field(default_factory=list)  # steps visibly finished and right
+    wrong: list[StepIssue] = Field(default_factory=list)  # finished steps done incorrectly
+    done_items: list[str] = Field(default_factory=list)  # what's already right within the current step
+    next_steps: list[str] = Field(default_factory=list)  # 1-3 actions from exactly here
+    say: str = ""
+    confidence: float = 0.5
+
+    @field_validator("done_steps", mode="before")
+    @classmethod
+    def _steps(cls, v):
+        out = []
+        for x in v if isinstance(v, list) else [v]:
+            try:
+                out.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(out))
+
+    @field_validator("current_step", mode="before")
+    @classmethod
+    def _cur(cls, v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    @field_validator("done_items", "next_steps", mode="before")
+    @classmethod
+    def _lines(cls, v):
+        return _str_list(v, 5)

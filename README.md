@@ -29,6 +29,11 @@ macOS or Linux: `./run.sh`.
 - **Same Wi-Fi:** open the phone address printed in the `run.bat` window. Allow Python through Windows Firewall when asked. The camera works over plain http because photos are taken with the phone's own camera app.
 - **Voice input** (the "Say it" button) needs https. Use a free tunnel, for example `cloudflared tunnel --url http://localhost:8000`, and open the https address it prints.
 
+### Go to any step, or pick up where you left off
+
+- **Any step, any order.** Tap any segment of the step bar, or open **All steps** on a step page, to jump anywhere. Each step shows whether it's checked, needs fixing, or hasn't been done. By voice: "go to step 4".
+- **Where am I?** Already halfway through, or coming back later? Tap **Where am I?** (on any step, or **Already started? Find my place** before the parts check) and take one picture of the work. Muse Spark compares it with every step, checks off the steps that are visibly done, flags any finished step that was done wrong (that comes first, since later steps build on it), and takes you to the step to do now with the next one to three actions from exactly where you are. By voice: "where am I" or "what's next".
+
 ### Live camera check
 
 **Check my work** opens a live camera view. About every two seconds a frame goes to Muse Spark, which replies with one short instruction for right now. The app shows it on the video and reads it aloud ("Turn panel B around so the holes face inward", then "Good, now fit the two screws"), outlining the problem area. It remembers its last few lines, so it can say "good, now…" as you fix things. When the step is clearly right (confidence at least `LIVE_PASS_CONFIDENCE`, default 0.75), it stops, keeps the passing frame on screen, and moves you on. The first mistake it sees and the final pass are saved to the passport with their frames.

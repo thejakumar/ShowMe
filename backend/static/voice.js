@@ -8,6 +8,7 @@ export const voiceSupported = () => Boolean(SR) && window.isSecureContext;
 
 // First match wins; only short utterances count as commands, so normal talk doesn't trigger them.
 const COMMANDS = [
+  ["where", /\b(where am i|find my place|what('?s| is) next|what now)\b/],
   ["skip", /\bskip\b/],
   ["back", /\b(go back|back|previous)\b/],
   ["next", /\b(next( step)?|i'?m done|done|finished|continue)\b/],
@@ -19,9 +20,18 @@ const COMMANDS = [
   ["help", /\b(help|commands)\b/],
 ];
 
+const NUMBERS = { one: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
+  nineteen: 19, twenty: 20 };
+
 export function matchCommand(text) {
   const t = String(text || "").toLowerCase().trim();
   if (!t || t.split(/\s+/).length > 5) return null;
+  const go = t.match(/\b(?:go to |jump to |open )?step (\d{1,2}|[a-z]+)\b/);
+  if (go) {
+    const n = /^\d+$/.test(go[1]) ? Number(go[1]) : NUMBERS[go[1]];
+    if (n) return `goto:${n}`;
+  }
   for (const [name, re] of COMMANDS) if (re.test(t)) return name;
   return null;
 }

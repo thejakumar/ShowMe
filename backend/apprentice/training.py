@@ -10,7 +10,7 @@ from PIL import Image
 from . import prompts
 from .config import Settings
 from .muse import MuseClient
-from .schemas import StepCheckReply
+from .schemas import ResumeReply, StepCheckReply
 from .vision import Vision
 
 
@@ -282,3 +282,41 @@ async def ledger_check(img: Image.Image, plan: dict, before_order: int, *, visio
     summary = " ".join(problems) if problems else "Hardware adds up. Exactly what should be left before this step."
     return {"rows": rows, "summary": summary, "ok": not problems, "detections": dets, "notes": notes,
             "before_step": before_order}
+
+
+# ---------------------------------------------------------------- where am I
+
+
+async def resume(img: Image.Image, plan: dict, reference: Optional[Image.Image], *, muse: MuseClient,
+                 settings: Settings, ctx: dict) -> dict:
+    """One photo of work in progress -> which steps are done, any done wrong, the step to do now, and what next."""
+    orders = [st["order"] for st in plan.get("steps", [])]
+    parts_lookup = {p["label"]: p["name"] for p in plan.get("parts", [])}
+    reply = await muse.json(
+        role="spark", purpose="where_am_i", system=prompts.RESUME_SYSTEM,
+        text=prompts.resume_prompt(plan, parts_lookup, reference is not None),
+        images=[img] + ([reference] if reference is not None else []), schema=ResumeReply,
+        effort=settings.check_effort, ctx=ctx, mock_args={"plan": plan},
+    )
+    valid = set(orders)
+    wrong = [w for w in reply.wrong if w.step in valid]
+    wrong_steps = {w.step for w in wrong}
+    sure = reply.confidence >= settings.min_confidence
+    done = [o for o in reply.done_steps if o in valid and o not in wrong_steps] if sure else []
+    current = reply.current_step if reply.current_step in valid else None
+    if current is None and sure:
+        current = next((o for o in orders if o not in done), None)
+    if wrong:  # a mistake in an earlier step comes first: later steps build on it
+        current = min(wrong_steps)
+    step = next((st for st in plan["steps"] if st["order"] == current), None)
+    return {
+        "observed": reply.observed, "confidence": round(float(reply.confidence), 2), "sure": sure,
+        "done_steps": done, "current_step": current,
+        "current_title": step["title"] if step else None,
+        "all_done": sure and not wrong and current is None and set(done) == valid,
+        "wrong": [{"step": w.step, "title": next(st["title"] for st in plan["steps"] if st["order"] == w.step),
+                   "observed": w.observed, "fix": w.fix, "box": [v / 1000 for v in w.box] if w.box else None}
+                  for w in wrong],
+        "done_items": reply.done_items, "next_steps": reply.next_steps[:3],
+        "say": reply.say, "box": [v / 1000 for v in reply.box] if reply.box else None,
+    }

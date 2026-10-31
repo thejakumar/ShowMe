@@ -583,6 +583,30 @@ async def step_live(sid: str, order: int, photo: UploadFile = File(...), frame: 
     return {**result, "frame": frame, "recorded": recorded, "result_id": result_id, "image": info}
 
 
+@app.post("/api/sessions/{sid}/where")
+async def where_am_i(sid: str, photo: UploadFile = File(...)):
+    """One photo of work in progress: steps already done are checked off, earlier mistakes are flagged,
+    and the step to do now comes back with the next actions, so someone midway can carry on."""
+    s = session_or_404(sid)
+    plan = ready_manual(s["manual_id"])["plan"]
+    if s["mode"] == "hybrid":
+        raise HTTPException(409, "Finding your place needs Muse Spark to see the photo. Switch to Cloud for this.")
+    img, info = await read_photo(photo, folder=("sessions", sid), name=f"where_{new_id('w')}.jpg")
+    result = await training.resume(img, plan, reference_image(plan), muse=S.muse, settings=S.settings,
+                                   ctx={"session_id": sid})
+    passed = {r["step_order"] for r in S.store.results(sid) if r["final"] == "pass"}
+    recorded = []
+    for order in result["done_steps"]:
+        if order not in passed:
+            S.store.add_result(sid, order, "pass", confidence=result["confidence"], reason="Checked from a progress photo",
+                               fix="", observed=result["observed"], photo=info["url"])
+            recorded.append(order)
+    for w in result["wrong"]:
+        S.store.add_result(sid, w["step"], "fail", confidence=result["confidence"], reason="Found in a progress photo",
+                           fix=w["fix"], observed=w["observed"], photo=info["url"])
+    return {**result, "recorded_passes": recorded, "image": info}
+
+
 @app.post("/api/sessions/{sid}/ledger")
 async def session_ledger(sid: str, before_step: int = Form(...), photo: UploadFile = File(...)):
     """Count the leftover hardware and compare it with what should be left before this step."""

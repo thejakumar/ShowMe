@@ -360,6 +360,39 @@ def listing_plan_prompt(product: str, kind: str, listing_text: str, in_the_box: 
     )
 
 
+# ---------------------------------------------------------------- where am I (Spark)
+
+RESUME_SYSTEM = (
+    "You look at one photo of work in progress and work out how far along a hands-on procedure the person is, "
+    "so they can carry on from exactly there. Judge only what is visible; finished steps often hide earlier ones, "
+    "so count a step as done when a later visible result needs it. Never claim a step is done if the photo can't "
+    "support it. " + BOX_RULE + " Reply with one JSON object and nothing else."
+)
+
+
+def resume_prompt(plan: dict, parts_lookup: dict[str, str], has_reference: bool) -> str:
+    lines = []
+    for st in plan.get("steps", [])[:40]:
+        uses = ", ".join(f"{u['quantity']}x {u['label']} {parts_lookup.get(u['label'], '')}" for u in st.get("parts_used", []))
+        lines.append(f"{st['order']}. {st['title']}: {st['instruction']} Parts: {uses or 'none'}. Done when: {st['done_when']}")
+    ref = "The second image is the manual's parts sheet.\n" if has_reference else ""
+    example = {"observed": "Both side panels stand with the back rail fixed between them; the seat is not on yet.",
+               "done_steps": [1, 2, 3], "current_step": 4,
+               "wrong": [{"step": 2, "observed": "The right panel's dowels are in its outer face.",
+                          "fix": "Move the two dowels to the inner face.", "box": [610, 300, 720, 520]}],
+               "done_items": [], "next_steps": ["Lower seat A onto the top dowels", "Fix it with four screws E"],
+               "say": "You've done steps 1 to 3. Next, fit the seat.", "confidence": 0.8, "box": [300, 120, 700, 420]}
+    return (
+        f"Product: {plan.get('product', '')}\nThe procedure:\n" + "\n".join(lines) + "\n\n"
+        f"The first image is the person's work right now. {ref}"
+        "done_steps: every step that is visibly finished and right. wrong: finished steps done incorrectly, each with "
+        "what you see, the fix, and a box. current_step: the first step not finished (the one to do now), or null "
+        "if the photo doesn't show the work. done_items: what is already right within current_step, if it's half "
+        "done. next_steps: 1 to 3 actions from exactly here. say: at most 18 words, spoken. box: where to work next.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example)}"
+    )
+
+
 # ---------------------------------------------------------------- concept lessons
 
 ROOM_SYSTEM = (

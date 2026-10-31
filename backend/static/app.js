@@ -3,7 +3,7 @@
 
 import { makeShot } from "./overlay.js";
 import { playLesson } from "./lesson.js";
-import { liveSupported, startLive } from "./live.js";
+import { captureFrame, liveSupported, startLive } from "./live.js";
 import { createViewer, webxrARSupported } from "./viewer3d.js";
 import { dictate, listen, voiceSupported } from "./voice.js";
 import { parseGuideCode, readPhoto, startScanner } from "./scan.js";
@@ -302,17 +302,80 @@ async function sessionView([sid, stage = "inventory", n]) {
   return doneStage(session, plan);
 }
 
-function progressBar(plan, current) {
-  // segment 0 is the parts check; then one per step
-  const total = plan.steps.length + 1;
-  return `<div class="stepbar" aria-label="Progress">${Array.from({ length: total }, (_, i) =>
-    `<span class="${i < current ? "done" : i === current ? "now" : ""}"></span>`).join("")}</div>`;
+// Where each step stands, from the session's results: pass, fail (a mistake still open) or progress.
+function stepStatuses(session) {
+  const out = {};
+  for (const r of session.results || []) out[r.step_order] = r.final;
+  return out;
 }
+
+const STATUS_WORDS = { pass: "checked", fail: "needs fixing", progress: "in progress", unsure: "not sure yet" };
+
+// One segment per step (plus the parts check for assembly); every segment jumps straight to its step.
+function progressBar(plan, current, session) {
+  const st = session ? stepStatuses(session) : {};
+  const withParts = (plan.use_case || "assembly") === "assembly";
+  const seg = (href, cls, label) => `<a class="${cls}" href="${href}" aria-label="${esc(label)}" title="${esc(label)}"></a>`;
+  const parts = withParts && session ? [seg(`#/session/${session.id}/inventory`, current === 0 ? "now" : "done", "Parts check")] : [];
+  const steps = plan.steps.map((s, i) => {
+    const status = st[s.order];
+    const cls = [i + 1 === current ? "now" : "", status === "pass" ? "done" : "", status === "fail" ? "bad" : ""].join(" ").trim();
+    return session ? seg(`#/session/${session.id}/step/${s.order}`, cls, `Step ${s.order}: ${s.title}${status ? ` (${STATUS_WORDS[status] || status})` : ""}`)
+      : `<span class="${cls}"></span>`;
+  });
+  return `<nav class="stepbar" aria-label="Steps: tap any step to go there">${parts.join("")}${steps.join("")}</nav>`;
+}
+
+function allStepsList(plan, session, currentOrder) {
+  const st = stepStatuses(session);
+  return `<details class="all-steps"><summary>All ${plan.steps.length} steps <span class="muted small">(go to any step)</span></summary>
+    <ol>${plan.steps.map((s) => {
+      const status = st[s.order];
+      return `<li class="${s.order === currentOrder ? "here" : ""}"><a href="#/session/${session.id}/step/${s.order}">
+        <span class="mark ${status || "none"}" aria-hidden="true">${status === "pass" ? "✓" : status === "fail" ? "!" : status === "progress" ? "→" : s.order}</span>
+        <span><strong>${esc(s.title)}</strong>${status ? `<span class="small muted"> ${STATUS_WORDS[status] || status}</span>` : ""}</span></a></li>`;
+    }).join("")}</ol></details>`;
+}
+
+// ---- where am I: one picture of the work, and ShowMe finds your place in the whole procedure
+async function grabWorkPhoto(area) {
+  if (liveSupported()) {
+    try { return await captureFrame(area, { label: "Take the picture" }); } catch { /* no camera: fall back to a photo */ }
+  }
+  return takePhoto();
+}
+
+async function whereAmI(session, plan, area, out, { auto = false } = {}) {
+  const blob = await grabWorkPhoto(area);
+  if (!blob) return null;
+  busy(out, "Muse Spark is comparing your work with every step");
+  const form = new FormData();
+  form.append("photo", blob, "where.jpg");
+  let r;
+  try { r = await api(`/api/sessions/${session.id}/where`, { method: "POST", form }); }
+  catch (e) { out.innerHTML = ""; toast(e.message, "error"); return null; }
+  const go = r.current_step ? `#/session/${session.id}/step/${r.current_step}` : r.all_done ? `#/session/${session.id}/done` : null;
+  out.innerHTML = `
+    <section class="verdict ${r.wrong.length ? "fail" : r.sure ? "progress" : "unsure"} whereami" aria-live="polite">
+      <h3>${r.all_done ? "✓ Everything looks done" : r.current_step ? `→ You're on step ${r.current_step}: ${esc(r.current_title)}` : "? I can't tell from this picture"}</h3>
+      ${r.observed ? `<p>${esc(r.observed)}</p>` : ""}
+      ${r.done_steps.length ? `<p class="small">Already done: step${r.done_steps.length > 1 ? "s" : ""} ${r.done_steps.join(", ")}${r.recorded_passes.length ? `. Checked off from this picture.` : "."}</p>` : ""}
+      ${r.wrong.map((w) => `<p><strong>Step ${w.step} needs fixing:</strong> ${esc(w.observed)} ${esc(w.fix)}</p>`).join("")}
+      ${r.next_steps.length ? `<h4>Next, from where you are</h4><ol class="next">${r.next_steps.map((t) => `<li>${esc(t)}</li>`).join("")}</ol>` : ""}
+      ${!r.sure && !r.current_step ? `<p class="small muted">Get the whole piece in the picture, in good light, and try again.</p>` : ""}
+      ${go ? `<p><a class="btn primary" href="${go}">${r.all_done ? "Finish" : `Go to step ${r.current_step}`}</a></p>` : ""}
+    </section>`;
+  out.scrollIntoView({ behavior: "smooth", block: "start" });
+  await speak(r.say || (r.current_step ? `You're on step ${r.current_step}.` : "I can't tell from this picture."));
+  if (auto && go && app.handsFree) location.hash = go;
+  return r;
+}
+
 
 function inventoryStage(session, plan) {
   view.innerHTML = `
     <a class="back" href="#/assemble">Change product</a>
-    ${progressBar(plan, 0)}
+    ${progressBar(plan, 0, session)}
     <div class="stack">
       <h2>Check the parts</h2>
       <p class="muted">Lay every part out on the floor, spread apart, and take one photo from above. ShowMe counts each one against the manual's parts list.</p>
@@ -323,10 +386,12 @@ function inventoryStage(session, plan) {
       <div id="result"></div>
     </div>
     <div class="dock"><div class="inner">
-      <a class="btn" href="#/session/${session.id}/step/1">Skip the parts check</a>
+      <button class="btn" id="where" type="button">Already started? Find my place</button>
+      <a class="btn" href="#/session/${session.id}/step/${plan.steps[0]?.order || 1}">Skip the parts check</a>
     </div></div>`;
 
   const area = $("#area"), result = $("#result"), dock = $(".dock .inner");
+  $("#where").addEventListener("click", () => whereAmI(session, plan, area, result));
   const snap = async () => {
     const file = await takePhoto();
     if (!file) return;
@@ -392,9 +457,10 @@ function stepStage(session, plan, order, ledger) {
     <a class="back" href="${prev ? `#/session/${session.id}/step/${prev.order}` : firstBack[0]}">${prev ? `Back to step ${prev.order}` : firstBack[1]}</a>
     ${plan.question ? `<p class="task-q">${esc(plan.question)}</p>` : ""}
     ${plan.source?.kind === "listing" ? `<p class="tag extra source-tag">General step from the store listing, not the official manual</p>` : ""}
-    ${progressBar(plan, idx + 1)}
+    ${progressBar(plan, idx + 1, session)}
     <div class="stack">
       <div class="step-head"><span class="step-no">${step.order}</span><div><p class="muted small">Step ${idx + 1} of ${plan.steps.length}</p><h2>${esc(step.title)}</h2></div></div>
+      ${allStepsList(plan, session, step.order)}
       <div class="viewer">
         <nav class="tabs view-tabs" aria-label="How to see this step">
           <button type="button" data-view="manual" aria-current="true">Manual</button>
@@ -414,6 +480,7 @@ function stepStage(session, plan, order, ledger) {
       <div class="row">
         <button class="btn quiet" id="voice" type="button" aria-pressed="${app.voice}">${app.voice ? "Reading aloud" : "Read aloud: off"}</button>
         <button class="btn quiet" id="handsfree" type="button" aria-pressed="${app.handsFree}">${app.handsFree ? "Hands-free: on" : "Hands-free: off"}</button>
+        <button class="btn quiet" id="whereami" type="button">Where am I?</button>
         ${hw.size && idx ? `<button class="btn quiet" id="ledger" type="button">Count leftover hardware</button>` : ""}
       </div>
       <p class="listening small" id="listening" hidden></p>
@@ -470,7 +537,7 @@ function stepStage(session, plan, order, ledger) {
       onState: (st) => {
         hint.hidden = false;
         hint.textContent = st === "blocked" ? "The microphone is blocked, so voice commands are off. The camera still coaches you."
-          : `Listening. Say "next", "repeat", "check", "show me", "parts" or "back".`;
+          : `Listening. Say "next", "go to step 3", "where am I", "repeat", "check", "show me" or "parts".`;
       },
       onHeard: (t) => { hint.textContent = `Heard: "${t}"`; },
       onCommand: (cmd) => handleCommand(cmd),
@@ -481,6 +548,14 @@ function stepStage(session, plan, order, ledger) {
     }
   }
   function handleCommand(cmd) {
+    if (cmd.startsWith("goto:")) {
+      const n = Number(cmd.slice(5));
+      const target = plan.steps.find((s) => s.order === n);
+      if (target) location.hash = `#/session/${session.id}/step/${n}`;
+      else say(`There's no step ${n}. This guide has ${plan.steps.length} steps.`);
+      return;
+    }
+    if (cmd === "where") { stopLive?.(); whereAmI(session, plan, area, verdictBox, { auto: true }); return; }
     if (cmd === "next") {
       if (passed) location.hash = next;
       else say("This step isn't checked yet. Say skip to move on anyway, or check to look again.");
@@ -491,7 +566,7 @@ function stepStage(session, plan, order, ledger) {
     else if (cmd === "stop") { stopLive?.(); say("Camera off. Say check when you want me to look again."); }
     else if (cmd === "show") { showView("3d"); }
     else if (cmd === "parts") say(step.parts_used?.length ? `You need ${step.parts_used.map((u) => `${u.quantity} ${names[u.label] || u.label} ${u.label}`).join(", ")}.` : "No parts for this step.");
-    else say(`Say next, back, repeat, check, show me, or parts.`);
+    else say(`Say next, back, go to step and a number, where am I, repeat, check, show me, or parts.`);
   }
   if (app.handsFree) startVoice();
   app.cleanup.push(() => { activeVoice?.stop(); activeVoice = null; });
@@ -699,6 +774,9 @@ function stepStage(session, plan, order, ledger) {
   };
 
   $("#check").addEventListener("click", () => (liveSupported() ? liveCheck() : check()));
+
+  // ---- where am I: works from any step, mid-way through anything
+  $("#whereami").addEventListener("click", () => { stopLive?.(); whereAmI(session, plan, area, verdictBox); });
 
   // ---- parts ledger: count the loose hardware and compare with what should be left before this step
   $("#ledger")?.addEventListener("click", async () => {
