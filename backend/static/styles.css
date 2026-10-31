@@ -472,3 +472,29 @@ ul.done li::before { content: "✓"; position: absolute; left: 2px; color: var(-
 .whereami h4 { margin: 10px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
 .whereami p + p { margin-top: 6px; }
 .capture-row { margin-top: 10px; }
+
+/* ---------- focused home + training records */
+.for-who { margin-top: 36px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.uses.compact { margin-top: 10px; }
+.uses.compact svg { width: 48px; height: 48px; }
+.uses.compact h3 { font-size: 18px; }
+fieldset.choice { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+fieldset.choice legend { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+fieldset.choice label { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: var(--sheet); cursor: pointer; }
+fieldset.choice label:has(input:checked) { border-color: var(--ink); }
+fieldset.choice input { margin-top: 3px; accent-color: var(--ink); width: 18px; height: 18px; flex: none; }
+.field.who { max-width: 420px; }
+.people { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.person { border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: var(--sheet); padding: 14px 16px; }
+.person h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.person ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.person li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--rule); }
+.person .what { display: grid; min-width: 0; }
+.person .what strong { overflow-wrap: anywhere; }
+.person .when { text-align: right; color: var(--ink-2); }
+.person .mark { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; border: 1.5px solid var(--ink-2); color: var(--ink-2); }
+.person .mark.pass { background: var(--pass); border-color: var(--pass); color: #fff; }
+@media (max-width: 520px) { .person li { grid-template-columns: auto 1fr; } .person .when { grid-column: 2; text-align: left; } }
+.proof { border-top: 1px solid var(--rule); padding-top: 14px; }
+.proof summary { cursor: pointer; }
+.proof > * + * { margin-top: 10px; }

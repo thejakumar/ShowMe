@@ -472,3 +472,10 @@ def test_where_am_i_puts_an_earlier_mistake_first():
 
     r = asyncio.run(training.resume(None, sample.sample_plan(), None, muse=FakeMuse(), settings=Settings(), ctx={}))
     assert r["current_step"] == 2 and 2 not in r["done_steps"] and r["wrong"][0]["title"]
+
+
+def test_training_records_csv(client):
+    r = client.get("/api/passport.csv")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    lines = r.text.strip().splitlines()
+    assert lines[0].startswith("Person,") and len(lines) > 1

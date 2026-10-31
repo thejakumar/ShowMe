@@ -690,6 +690,23 @@ async def get_passport():
     return passport.passport(S.store)
 
 
+@app.get("/api/passport.csv")
+async def passport_csv():
+    """Training records as a spreadsheet: one row per person per machine, product or task."""
+    import csv
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Person", "Machine, product or task", "Kind", "Status", "Steps checked", "Steps total",
+                "Mistakes caught", "Confirmed by the person", "Started", "Finished", "Mode"])
+    for r in passport.passport(S.store):
+        w.writerow([r["person"], r["product"], r["use_case"], "Signed off" if r["verified"] else "In progress",
+                    r["steps_passed"], r["steps_total"], r["mistakes_caught"], r["overrides"], r["started"],
+                    r["finished"] or "", r["mode"]])
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="showme-training-records.csv"'})
+
+
 @app.get("/api/export/robot-data")
 async def robot_data():
     data = passport.robot_export(S.store)

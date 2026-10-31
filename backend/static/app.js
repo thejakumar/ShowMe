@@ -1,5 +1,6 @@
-// ShowMe web app: phone-first screens for assembly, machine training, car checks,
-// concept lessons and the team passport. No build step; plain modules.
+// ShowMe web app: every product comes with an expert. Phone-first screens for assembling things and
+// learning machines and devices, plus QR guides for brands and training records for employers.
+// (Car checks and concept lessons still live at #/car and #/learn, off the main path.) No build step.
 
 import { makeShot } from "./overlay.js";
 import { playLesson } from "./lesson.js";
@@ -176,27 +177,30 @@ const ICONS = {
 async function home() {
   view.innerHTML = `
     <h1>Every product comes with an expert.</h1>
-    <p class="lede">Point your phone at the real thing. ShowMe reads the manual, finds each part, and checks every step you do.</p>
-    <a class="scan-cta" href="#/scan">${ICONS.scan}<span><strong>Scan the code on the box</strong><span class="small muted">Opens the product's guide. No manual to find.</span></span><span class="go" aria-hidden="true">›</span></a>
+    <p class="lede">ShowMe reads the manual, watches you work through your phone's camera, and talks you through every step, catching mistakes before they matter.</p>
+    <a class="scan-cta" href="#/scan">${ICONS.scan}<span><strong>Scan the code on the box or machine</strong><span class="small muted">Opens its guide straight away. No manual to find.</span></span><span class="go" aria-hidden="true">›</span></a>
     <p class="link-cta"><a href="#/link">Bought it online? Paste the Amazon or store link</a> and ShowMe finds its setup guide.</p>
     <ul class="uses">
-      <li class="lead"><a href="#/assemble">${ICONS.stool}<div><h3>Assemble something</h3><p>Flat-pack furniture from a pile of loose parts to finished, with every part counted and every step checked.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/assemble?use=training">${ICONS.machine}<div><h3>Train on a machine</h3><p>Learn a work machine from its manual: what every control does, any procedure on request, each step checked and logged on your skill passport.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/assemble?use=device">${ICONS.device}<div><h3>Learn a device</h3><p>Point at any gadget to see what each button does, then ask "how do I…" and get walked through it from its manual.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/car">${ICONS.car}<div><h3>Car checks</h3><p>Find the dipstick, coolant and washer fluid from your owner's manual, and read warning lights.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/learn">${ICONS.orbit}<div><h3>Learn any idea</h3><p>Ask about orbits, electricity or interest. The objects in your room become the lesson.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/brand">${ICONS.qr}<div><h3>For brands: QR guides</h3><p>Turn a manual into a QR code for the box. See where people struggle, and the questions they ask.</p></div><span class="go" aria-hidden="true">›</span></a></li>
-      <li><a href="#/team">${ICONS.team}<div><h3>Team passport</h3><p>Who is trained on what, every model call, and robot-ready training data.</p></div><span class="go" aria-hidden="true">›</span></a></li>
+      <li class="lead"><a href="#/assemble">${ICONS.stool}<div><h3>Assemble something</h3><p>From a pile of loose parts to finished: every part counted, every step checked, help the moment something goes wrong.</p></div><span class="go" aria-hidden="true">›</span></a></li>
+      <li><a href="#/assemble?use=machine">${ICONS.machine}<div><h3>Learn a machine or device</h3><p>A machine at work or an appliance at home: what every control does, "how do I…" answered from its manual, then guided and checked.</p></div><span class="go" aria-hidden="true">›</span></a></li>
+    </ul>
+    <h2 class="for-who">For businesses</h2>
+    <ul class="uses compact">
+      <li><a href="#/brand">${ICONS.qr}<div><h3>Brands: a guide in every box</h3><p>Publish your manual as a QR code. See which step people get wrong and what they ask.</p></div><span class="go" aria-hidden="true">›</span></a></li>
+      <li><a href="#/team">${ICONS.team}<div><h3>Employers: train staff on your machinery</h3><p>Every step verified by the camera. Training records show who is signed off on what.</p></div><span class="go" aria-hidden="true">›</span></a></li>
     </ul>`;
 }
 
 // ---------------------------------------------------------------- pick a manual and start
 
 async function assemble(_, query) {
-  const use = ["training", "device"].includes(query.get("use")) ? query.get("use") : "assembly";
-  const noun = { training: "machine", device: "device", assembly: "product" }[use];
-  const heading = { training: "Which machine?", device: "Which device?", assembly: "What are you building?" }[use];
-  const placeholder = { training: "Espresso machine", device: "Wi-Fi router", assembly: "Oak bookshelf" }[use];
+  // Machines (at work) and devices (at home) share one path; "training" / "device" is just where it's used.
+  const asked = query.get("use") || "assembly";
+  const use = ["machine", "training", "device"].includes(asked) ? "machine" : "assembly";
+  const kinds = use === "machine" ? ["training", "device"] : ["assembly"];
+  const noun = use === "machine" ? "machine or device" : "product";
+  const heading = use === "machine" ? "Which machine or device?" : "What are you building?";
+  const placeholder = use === "machine" ? "Label printer, espresso machine, Wi-Fi router" : "Oak bookshelf";
   view.innerHTML = `
     <a class="back" href="#/">Home</a>
     <div class="stack-l">
@@ -204,14 +208,17 @@ async function assemble(_, query) {
         <h2>${heading}</h2>
         <p class="muted">Pick a manual ShowMe has already read, or upload the PDF that came with your ${noun}.</p>
         <ul class="list" id="manuals"><li class="muted">Loading manuals</li></ul>
-        ${use === "assembly" ? `<button class="btn" id="sample" type="button">Try the sample step stool</button>` : ""}
-        ${use === "device" ? `<button class="btn" id="sample" type="button" data-kind="device">Try the sample coffee maker</button>` : ""}
+        ${use === "assembly" ? `<button class="btn" id="sample" type="button">Try the sample step stool</button>`
+          : `<button class="btn" id="sample" type="button" data-kind="device">Try the sample coffee maker</button>`}
       </div>
       <form class="stack" id="upload">
         <h3>Upload a manual</h3>
         <div class="field"><label for="title">Name</label><input id="title" name="title" placeholder="${placeholder}" autocomplete="off"></div>
         <div class="field"><label for="pdf">Manual: a PDF, or photos of each page</label><input id="pdf" name="file" type="file" accept="application/pdf,image/*" multiple required><span class="small muted">Lost the PDF? Photograph each page of the paper booklet, in order.</span></div>
-        <input type="hidden" name="use_case" value="${use}">
+        ${use === "machine" ? `<fieldset class="field choice"><legend>Where is it used?</legend>
+          <label><input type="radio" name="use_case" value="training" ${asked !== "device" ? "checked" : ""}> <span><strong>At work</strong><br><span class="small muted">A machine your team operates. Sessions go on training records.</span></span></label>
+          <label><input type="radio" name="use_case" value="device" ${asked === "device" ? "checked" : ""}> <span><strong>At home</strong><br><span class="small muted">A device or appliance you own.</span></span></label>
+        </fieldset>` : `<input type="hidden" name="use_case" value="assembly">`}
         <button class="btn primary" type="submit">Upload and read the manual</button>
       </form>
       <form class="stack" id="start" hidden>
@@ -227,13 +234,13 @@ async function assemble(_, query) {
 
   async function refresh() {
     const all = await api("/api/manuals");
-    const mine = all.filter((m) => m.use_case === use);
+    const mine = all.filter((m) => kinds.includes(m.use_case));
     list.innerHTML = mine.length ? mine.map((m) => `
       <li>
         <div><div class="title">${esc(m.title)}</div>
-          <div class="status ${m.status === "error" ? "error" : ""}">${m.status === "ready" ? `${m.page_count} pages, ready` : m.status === "error" ? esc(m.error || "Could not read this manual") : esc(m.progress)}</div></div>
+          <div class="status ${m.status === "error" ? "error" : ""}">${m.status === "ready" ? `${use === "machine" ? (m.use_case === "training" ? "At work · " : "At home · ") : ""}${m.page_count ? `${m.page_count} pages, ready` : "Ready"}` : m.status === "error" ? esc(m.error || "Could not read this manual") : esc(m.progress)}</div></div>
         ${m.status === "ready" ? `<button class="btn" data-pick="${m.id}" data-title="${esc(m.title)}" type="button">Choose</button>` : m.status === "processing" ? `<span class="busy small" aria-label="Reading"></span>` : ""}
-      </li>`).join("") : `<li class="muted">No ${noun} manuals yet. Upload one below${use !== "training" ? ", or try the sample" : ""}.</li>`;
+      </li>`).join("") : `<li class="muted">No ${noun} manuals yet. Upload one below, or try the sample.</li>`;
     list.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => pick(b.dataset.pick, b.dataset.title)));
     clearTimeout(timer);
     if (mine.some((m) => m.status === "processing")) timer = setTimeout(refresh, 1500);
@@ -241,7 +248,7 @@ async function assemble(_, query) {
   app.cleanup.push(() => clearTimeout(timer));
 
   function pick(id, title) {
-    if (use !== "assembly") { location.hash = `#/device/${id}`; return; } // machines and devices open the hub
+    if (use === "machine") { location.hash = `#/device/${id}`; return; } // machines and devices open their page
     chosen = id;
     $("#start").hidden = false;
     $("#start-title").textContent = title;
@@ -882,12 +889,11 @@ async function doneStage(session, plan) {
       </table>
       <div class="row">
         ${plan.use_case === "task" || (plan.use_case && plan.use_case !== "assembly") ? `<a class="btn primary" href="#/device/${plan.parent_manual_id || session.manual_id}${session.pack_code ? `?pack=${session.pack_code}` : ""}">Back to the ${plan.use_case === "training" ? "machine" : "device"}</a>` : ""}
-        <a class="btn ${plan.use_case === "task" || (plan.use_case && plan.use_case !== "assembly") ? "" : "primary"}" href="#/team">See the team passport</a>
-        ${session.pack_code ? "" : `<a class="btn" href="/api/export/robot-data" download>Download robot data</a>`}
+        <a class="btn ${plan.use_case === "task" || (plan.use_case && plan.use_case !== "assembly") ? "" : "primary"}" href="#/team">See training records</a>
       </div>
       ${session.pack_code ? `<p class="small muted">Thanks: the mistakes you fixed now warn the next person at the same step.</p>` : ""}
     </div>`;
-  speak(row.verified ? "Done. Every step is verified and saved to your skill passport." : "Session saved.");
+  speak(row.verified ? "Done. Every step is verified and saved to your training record." : "Session saved.");
 }
 
 // ---------------------------------------------------------------- car checks
@@ -1085,29 +1091,50 @@ async function learnView() {
   }
 }
 
-// ---------------------------------------------------------------- team passport + live trace
+// ---------------------------------------------------------------- training records (employers) + proof it runs on Muse
+
+const KIND_WORDS = { training: "Machine", device: "Device", assembly: "Assembly", task: "Task", car: "Car" };
 
 async function teamView() {
   const rows = await api("/api/passport");
   const traces = await api("/api/traces?limit=60");
+  // one card per person: what they're signed off on, and what's still in progress
+  const people = new Map();
+  for (const r of rows) {
+    if (!people.has(r.person)) people.set(r.person, []);
+    people.get(r.person).push(r);
+  }
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "");
+  const verifiedCount = rows.filter((r) => r.verified).length;
   view.innerHTML = `
     <a class="back" href="#/">Home</a>
     <div class="stack-l">
       <div class="stack">
-        <h2>Team passport</h2>
-        <p class="muted">Every step here was checked by the camera, or confirmed by the person when the camera wasn't sure.</p>
-        ${rows.length ? `<div class="table-wrap"><table class="passport">
-          <thead><tr><th>Person</th><th>Product or machine</th><th>Steps checked</th><th>Mistakes caught</th><th>Status</th></tr></thead>
-          <tbody>${rows.map((r) => `<tr><td><strong>${esc(r.person)}</strong></td><td>${esc(r.product)}</td><td class="num">${r.steps_passed} of ${r.steps_total}</td><td class="num">${r.mistakes_caught}</td>
-          <td>${r.verified ? `<span class="tag ok">Verified</span>` : `<span class="tag extra">In progress</span>`}</td></tr>`).join("")}</tbody></table></div>`
-          : `<p>No sessions yet. <a href="#/assemble">Start one</a>.</p>`}
-        <div class="row"><a class="btn" href="/api/export/robot-data" download>Download robot data</a><span class="small muted">One episode per session: steps, photos, verdicts. Ready to convert for robot learning.</span></div>
+        <h2>Training records</h2>
+        <p class="muted">Who is signed off on what. A sign-off means the camera checked every step against the manual; anything a person confirmed themselves is counted separately.</p>
+        <div class="kpis">
+          <div><b>${people.size}</b><span>${people.size === 1 ? "person" : "people"} trained</span></div>
+          <div><b>${verifiedCount}</b><span>sign-offs</span></div>
+          <div><b>${rows.reduce((a, r) => a + r.mistakes_caught, 0)}</b><span>mistakes caught and fixed</span></div>
+        </div>
+        <div class="row"><a class="btn" href="#/assemble?use=machine">Add a machine</a><a class="btn" href="#/brand">Put a QR guide on a machine</a><a class="btn quiet" href="/api/passport.csv" download>Download as a spreadsheet (CSV)</a></div>
       </div>
-      <div class="stack">
-        <h2>Model trace</h2>
-        <p class="muted">Every call to Meta's models, live. <span class="where cloud">cloud</span> sent to the Meta Model API, <span class="where local">local</span> stayed on your hardware${app.status?.mock ? `, <span class="where mock">mock</span> canned offline answer` : ""}.</p>
+      ${people.size ? `<ul class="people">${[...people.entries()].map(([person, items]) => `
+        <li class="person">
+          <h3>${esc(person)} <span class="small muted">${items.filter((i) => i.verified).length} signed off</span></h3>
+          <ul>${items.map((r) => `
+            <li class="${r.verified ? "ok" : ""}">
+              <span class="mark ${r.verified ? "pass" : "none"}" aria-hidden="true">${r.verified ? "✓" : "…"}</span>
+              <span class="what"><strong>${esc(r.product)}</strong><span class="small muted">${KIND_WORDS[r.use_case] || ""}${r.use_case ? " · " : ""}${r.steps_passed} of ${r.steps_total} steps${r.mistakes_caught ? ` · ${r.mistakes_caught} mistake${r.mistakes_caught > 1 ? "s" : ""} caught` : ""}${r.overrides ? ` · ${r.overrides} confirmed by the person` : ""}</span></span>
+              <span class="when small">${r.verified ? `Signed off ${fmt(r.finished || r.started)}` : `<span class="tag extra">In progress</span>`}</span>
+            </li>`).join("")}</ul>
+        </li>`).join("")}</ul>` : `<p>No training yet. <a href="#/assemble?use=machine">Add a machine</a> or <a href="#/assemble">assemble something</a>.</p>`}
+      <details class="proof">
+        <summary><strong>Proof it runs on Muse</strong> <span class="muted small">every call to Meta's models, live</span></summary>
+        <p class="muted small"><span class="where cloud">cloud</span> sent to the Meta Model API, <span class="where local">local</span> stayed on your hardware${app.status?.mock ? `, <span class="where mock">mock</span> canned offline answer` : ""}. Also saved to <code>traces/</code>.</p>
         <ul class="traces" id="traces">${traces.map(traceRow).join("") || `<li class="muted">No calls yet.</li>`}</ul>
-      </div>
+        <p class="small"><a href="/api/export/robot-data" download>Export every session's steps, photos and verdicts (JSON)</a></p>
+      </details>
     </div>`;
 
   const list = $("#traces");
@@ -1144,15 +1171,17 @@ async function deviceView([mid], query) {
   const pack = query.get("pack") || "";
   const kindNoun = manual.use_case === "training" ? "machine" : "device";
   view.innerHTML = `
-    <a class="back" href="${pack ? `#/pack/${pack}` : `#/assemble?use=${manual.use_case}`}">${pack ? "Back" : `Change ${kindNoun}`}</a>
+    <a class="back" href="${pack ? `#/pack/${pack}` : `#/assemble?use=machine`}">${pack ? "Back" : `Change ${kindNoun}`}</a>
     <div class="stack-l">
       <div class="stack">
-        <p class="muted small">${manual.use_case === "training" ? "Machine training" : "Learn a device"}</p>
+        <p class="muted small">${manual.use_case === "training" ? "Machine training: at work" : "Device guide: at home"}</p>
         <h1>${esc(plan.product)}</h1>
         ${plan.summary ? `<p class="lede">${esc(plan.summary)}</p>` : ""}
         ${plan.source?.kind === "listing" ? `<p class="tag extra source-tag">General guide from the ${esc(plan.source.retailer || "store")} listing, not the official manual</p>` : ""}
       </div>
 
+      ${manual.use_case === "training" ? `<div class="field who"><label for="who">Your name <span class="muted small">(for training records)</span></label>
+        <input id="who" value="${esc(load("person", ""))}" autocomplete="name" placeholder="First and last name"></div>` : ""}
       <section class="stack hub-ask">
         <h2>How do I…</h2>
         <form id="ask" class="ask-row">
@@ -1180,6 +1209,7 @@ async function deviceView([mid], query) {
       </section>` : ""}
     </div>`;
 
+  $("#who")?.addEventListener("change", (e) => save("person", e.target.value.trim()));
   // ---- ask
   const answer = $("#answer");
   async function ask(question) {
@@ -1316,7 +1346,7 @@ async function brandView([code, sub]) {
     <div class="stack-l">
       <div class="stack">
         <h2>QR guides</h2>
-        <p class="muted">Publish a manual once. Print the QR code on the box or the device. Shoppers scan it and start straight away: no PDF, no upload, every 3D scene already built.</p>
+        <p class="muted">Publish a manual once. Print the QR code on the box, or stick it on the machine. Anyone who scans it starts straight away: no PDF, no upload, every 3D scene already built.</p>
         ${packs.length ? `<ul class="list packs">${packs.map((p) => `
           <li><a class="pack-row" href="#/brand/${p.code}">
             <img src="${p.qr_url}" alt="" width="56" height="56">
@@ -1331,7 +1361,7 @@ async function brandView([code, sub]) {
         <div class="field"><label for="pb">Brand name <span class="muted small">(shown to shoppers)</span></label><input id="pb" placeholder="Nordlund Home" autocomplete="organization"></div>
         <button class="btn primary" type="submit">Publish and make the QR code</button>
         <p class="small muted">Publishing builds the 3D scene for every step in the background, so nobody waits later.</p>`
-        : `<p class="muted">Every manual that's ready is already published. Add one under <a href="#/assemble">Assemble</a>, <a href="#/assemble?use=training">Machines</a> or <a href="#/assemble?use=device">Devices</a>.</p>`}
+        : `<p class="muted">Every manual that's ready is already published. Add one under <a href="#/assemble">Assemble something</a> or <a href="#/assemble?use=machine">Learn a machine or device</a>.</p>`}
       </form>
     </div>`;
   $("#publish").addEventListener("submit", async (e) => {
@@ -1555,7 +1585,7 @@ async function linkView(_, query) {
       ${!official && plan.note ? `<p class="warn">${esc(plan.note)}</p>` : ""}
       ${plan.needs_manual ? `<section class="verdict unsure"><h3>For the exact steps, add the instructions</h3>
         <p>The store page doesn't include ${m.use_case === "assembly" ? "the assembly order" : "the full instructions"}. Photograph each page of the paper instructions from the box (or upload the PDF) and ShowMe guides every step.</p>
-        <a class="btn" href="#/assemble?use=${m.use_case}">Add the instructions</a></section>` : ""}
+        <a class="btn" href="#/assemble?use=${m.use_case === "assembly" ? "assembly" : m.use_case}">Add the instructions</a></section>` : ""}
       <ol class="mini-steps">${plan.steps.map((s) => `<li><strong>${esc(s.title)}.</strong> ${esc(s.instruction)}</li>`).join("")}</ol>
       <div class="row"><button class="btn primary" id="go" type="button">${m.use_case === "assembly" ? (official ? "Start building" : "Start preparing") : m.use_case === "training" ? "Open the machine guide" : "Open the device guide"}</button>
         ${src.url ? `<a class="btn quiet" href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">Store page</a>` : ""}</div>`;

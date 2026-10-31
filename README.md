@@ -1,19 +1,23 @@
 # ShowMe
 
-**Every product comes with an expert.** Upload a manual, point your phone at the real thing, and ShowMe finds each part, guides every step, and checks your work with Meta's Muse models.
+**Every product comes with an expert.** ShowMe reads a product's manual, watches you work through your phone's camera, and talks you through every step, catching mistakes before they matter. It runs on Meta's Muse Spark and Muse Wonder.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026).
 
-| Use case | What happens |
-| --- | --- |
-| **Assemble something** (lead demo) | One photo of the loose parts: every piece is found, labeled with the manual's letter, and counted. Then each step is checked from a photo, and mistakes are caught with what's wrong, why it matters, and how to fix it. |
-| **Train on a machine** | Photograph the machine and every control is labeled with what it does. Ask "how do I clear a jam?" and get walked through it from the manual, each step checked. Verified steps go on a skill passport. |
-| **Learn a device** | The same for any electronic device: tap a button on the photo to hear what it does, ask "what does the orange light mean?", or "how do I descale it?" and follow the guided steps. |
-| **QR guides for brands** | Publish a manual once and print the QR code on the box. Shoppers scan and start: no PDF, no upload, every 3D scene pre-built. Brands see where people struggle and what they ask. |
-| **Car checks** | The engine bay is labeled from the owner's manual (dipstick, coolant, washer fluid) with page numbers, and dashboard warning lights are read. |
-| **Learn any idea** | Ask about orbits or compound interest. The objects in your room become the lesson's cast, animated over your photo, and fact-checked first. |
+## One idea, two audiences
 
-Every session also exports as robot-ready episodes: steps, photos, and verdicts.
+| | People assembling things | Employees learning machinery |
+| --- | --- | --- |
+| **How they start** | Scan the QR code on the box, or paste the Amazon / store link | Scan the QR code on the machine, or pick it from the list |
+| **What ShowMe does** | Counts every part, guides each step in 3D, watches live, catches mistakes mid-way, picks up where you left off | Labels every control from one photo, answers "how do I…" from the manual, guides and checks each step |
+| **Who pays** | The brand: fewer returns, support calls and bad reviews | The employer: faster onboarding and proof of training |
+| **What the payer gets** | A dashboard: which step people get wrong, build times, the questions they ask | Training records: who is signed off on which machine, exportable as a spreadsheet |
+
+The same engine serves both: the manual is read once, every step gets a visible "done when" condition, and the camera checks real work against it.
+
+### Why not just upload the manual to ChatGPT?
+
+A chatbot needs your hands, starts from zero every time, and can't check your work against the manual. ShowMe watches while your hands are busy, tracks which step you're on, warns you about the mistake earlier builders made at that step, counts your leftover screws, and gives the brand or employer a record of every verified step.
 
 ## Run it on Windows
 
@@ -53,7 +57,7 @@ Each step's diagram has three tabs: **Manual**, **3D** and **AR**.
 
 3D rendering uses three.js (MIT licence), bundled in `backend/static/vendor/`, so no CDN is needed.
 
-### Why not just upload the manual to a chatbot?
+### QR guides, heads-ups, dashboards, parts ledger, hands-free
 
 Because a chatbot starts from zero every time, needs your hands, and gives the brand nothing back. ShowMe adds:
 
@@ -138,7 +142,7 @@ The switch is disabled when no private backend is set up. SAM 3.1 setup is in `b
 ## Proof it runs on Muse
 
 - Every call is appended to `traces/YYYY-MM-DD.jsonl` with model, purpose, latency, token usage, the API's request ID, and a `cloud`, `local` or `mock` tag. Commit the traces from your demo runs.
-- **Team passport → Model trace** streams the calls live, which is good footage for the video.
+- **Training records → Proof it runs on Muse** streams the calls live, which is good footage for the video.
 - No API key or image data is ever written to the traces.
 
 ## Measure it
@@ -159,6 +163,10 @@ The client follows the OpenAI-compatible chat format. These are assumptions to c
 - [ ] For `VISION_BACKEND=sam_api`: the SAM 3.1 endpoint path and fields. Adjust `_sam_api_one()` in `vision.py`, the only place that knows them.
 
 The quickest end-to-end test: open the app, choose **Try the sample step stool**, and watch the trace panel.
+
+## Also in the code (off the main path)
+
+Two earlier experiments still work but are left out of the home screen and the demo to keep the product focused: **car checks** (`#/car`: engine-bay labels from the owner's manual, warning lights) and **learn any idea** (`#/learn`: a concept taught with the objects in your room). Session data also exports as plain JSON episodes (steps, photos, verdicts) from the training records page.
 
 ## Project layout
 
