@@ -529,3 +529,12 @@ fieldset.choice input { margin-top: 3px; accent-color: var(--ink); width: 18px; 
 .dock .inner { flex-wrap: wrap; }
 .dock .btn { flex: 1 1 140px; }
 .privacy[hidden] { display: none; }
+
+/* ---------- accounts */
+.account { font-size: 14px; font-weight: 650; color: var(--ink); text-decoration: none; padding: 6px 12px; border: 1.5px solid var(--rule);
+  border-radius: 999px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account:hover { border-color: var(--ink); }
+.card { border: 1.5px solid var(--rule); border-radius: var(--radius-m); background: var(--sheet); padding: 16px; }
+.join-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 28px; font-weight: 700; letter-spacing: .18em; }
+.code-input { text-transform: uppercase; letter-spacing: .12em; font-family: ui-monospace, Menlo, Consolas, monospace; }
+@media (max-width: 420px) { .engine { display: none; } }

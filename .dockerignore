@@ -1,0 +1,9 @@
+.env
+.venv
+venv
+data
+traces/*.jsonl
+.git
+**/__pycache__
+.pytest_cache
+eval/photos

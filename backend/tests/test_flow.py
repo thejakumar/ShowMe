@@ -23,6 +23,7 @@ def client(tmp_path_factory):
         "APPRENTICE_DATA": str(tmp / "data"),
         "APPRENTICE_TRACES": str(tmp / "traces"),
         "VISION_BACKEND": "spark",
+        "MULTI_USER": os.environ.get("TEST_MULTI_USER", "0"),
     })
     sys.path.insert(0, str(ROOT / "backend"))
     from apprentice.config import get_settings
@@ -479,3 +480,153 @@ def test_training_records_csv(client):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     lines = r.text.strip().splitlines()
     assert lines[0].startswith("Person,") and len(lines) > 1
+
+
+# ---------------------------------------------------------------- hosting for many users
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def settings_changed(**changes):
+    import dataclasses
+    from apprentice.app import S
+    old = S.settings
+    S.settings = dataclasses.replace(old, **changes)
+    try:
+        yield
+    finally:
+        S.settings = old
+
+
+def other_device():
+    """A second phone: same server, its own cookies (no lifespan re-run)."""
+    from fastapi.testclient import TestClient
+    from apprentice.app import app
+    return TestClient(app)
+
+
+def test_multi_user_privacy_workspaces_and_join(client):
+    with settings_changed(multi_user=True):
+        shopper, other, brand, employee = client, other_device(), other_device(), other_device()
+        mid = ready_sample(shopper)
+        sid = shopper.post("/api/sessions", json={"manual_id": mid}).json()["id"]
+        assert shopper.get(f"/api/sessions/{sid}").status_code == 200
+        assert other.get(f"/api/sessions/{sid}").status_code == 404  # someone else's build stays theirs
+        assert other.post(f"/api/sessions/{sid}/steps/1/check", files={"photo": photo()}).status_code == 404
+
+        # a brand signs up, publishes a QR guide; its dashboard is private, the guide is public
+        r = brand.post("/api/auth/signup", json={"name": "Lena", "email": "lena@nordlund.example", "password": "birch-2026",
+                                                  "workspace": "Nordlund Home", "kind": "both"})
+        assert r.status_code == 200 and r.json()["workspace"]["join_code"]
+        code_ws = r.json()["workspace"]["join_code"]
+        assert brand.post("/api/auth/signup", json={"name": "X", "email": "lena@nordlund.example", "password": "whatever1",
+                                                     "workspace": "Y"}).status_code == 409
+        pack = brand.post("/api/packs", json={"manual_id": mid, "brand": "Nordlund"}).json()
+        assert other.post("/api/packs", json={"manual_id": mid}).status_code == 401
+        assert other.get("/api/packs").status_code == 401
+        assert other.get(f"/api/packs/{pack['code']}").status_code == 200
+        assert other.get(f"/api/packs/{pack['code']}/stats").status_code == 403
+        assert brand.get(f"/api/packs/{pack['code']}/stats").status_code == 200
+        assert [p["code"] for p in brand.get("/api/packs").json()] == [pack["code"]]
+
+        # the employer adds a machine: private to the workspace
+        up = brand.post("/api/manuals", files={"file": ("lp200.pdf", (ROOT / "manuals" / "sample_step_stool.pdf").read_bytes(), "application/pdf")},
+                        data={"use_case": "training", "title": "Label printer LP-200"}).json()
+        machine = wait_ready(brand, up["id"])
+        assert machine["visibility"] == "workspace"
+        assert other.get(f"/api/manuals/{up['id']}").status_code == 404
+        assert all(m["id"] != up["id"] for m in other.get("/api/manuals").json())
+
+        # an employee joins with the code and their name, then trains on the machine
+        j = employee.post("/api/auth/join", json={"code": code_ws.lower(), "name": "Ravi Kumar"})
+        assert j.status_code == 200 and j.json()["workspace"]["name"] == "Nordlund Home"
+        assert "join_code" not in j.json()["workspace"]  # only owners see the code
+        assert employee.get(f"/api/manuals/{up['id']}").status_code == 200
+        esid = employee.post("/api/sessions", json={"manual_id": up["id"]}).json()
+        assert esid["person"] == "Ravi Kumar" and esid["workspace_id"] == r.json()["workspace"]["id"]
+        employee.post(f"/api/sessions/{esid['id']}/steps/1/check", files={"photo": photo()})
+        records = brand.get("/api/passport").json()
+        assert any(x["person"] == "Ravi Kumar" for x in records)
+        assert all(x["person"] != "Ravi Kumar" for x in other.get("/api/passport").json())
+        assert brand.get(f"/api/sessions/{esid['id']}").status_code == 200  # the employer can review it
+
+        # sign in / out
+        assert other.post("/api/auth/login", json={"email": "lena@nordlund.example", "password": "nope"}).status_code == 401
+        ok = other.post("/api/auth/login", json={"email": "LENA@nordlund.example", "password": "birch-2026"})
+        assert ok.status_code == 200 and ok.json()["user"]["name"] == "Lena"
+        other.post("/api/auth/logout")
+        assert other.get("/api/me").json()["user"] is None
+        assert brand.post("/api/auth/join", json={"code": "NOPE1234"}).status_code == 404
+
+        # proof of Muse stays public, without anyone's ids
+        assert all("session_id" not in t for t in other.get("/api/traces").json())
+
+
+def test_rate_limits_protect_the_api_key(client):
+    with settings_changed(rate_per_minute=2):
+        c = other_device()
+        mid = ready_sample(c)
+        sid = c.post("/api/sessions", json={"manual_id": mid}).json()["id"]
+        codes = [c.post(f"/api/sessions/{sid}/steps/1/check", files={"photo": photo()}).status_code for _ in range(3)]
+        assert codes == [200, 200, 429]
+
+
+def test_healthz(client):
+    h = client.get("/healthz").json()
+    assert h["ok"] is True and h["worker_in_process"] is True and h["queue"] >= 0
+
+
+def test_job_queue_hands_each_job_to_one_worker(tmp_path):
+    import threading
+    from apprentice.store import Store
+    url = os.environ.get("DATABASE_URL", "")
+    stores = [Store(tmp_path, url) for _ in range(4)]  # four workers sharing one database
+    ids = [stores[0].enqueue("noop", {"i": i}) for i in range(40)]
+    seen, lock = [], threading.Lock()
+
+    def drain(st, name):
+        while True:
+            j = st.claim_job(name)
+            if j is None:
+                return
+            with lock:
+                seen.append(j["id"])
+            st.finish_job(j["id"])
+
+    threads = [threading.Thread(target=drain, args=(st, f"w{n}")) for n, st in enumerate(stores)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(seen) == len(set(seen))  # no worker got a job another worker had
+    for _ in range(100):  # with a shared Postgres the app's own worker may take some: wait for those too
+        rows = [stores[0].job(i) for i in ids]
+        if all(r["status"] == "done" for r in rows):
+            break
+        time.sleep(0.05)
+    assert all(r["status"] == "done" and r["attempts"] == 1 for r in rows)  # every job ran exactly once
+    for st in stores:
+        st.close()
+
+
+def test_stale_jobs_go_back_in_the_queue(tmp_path):
+    from apprentice.store import Store
+    st = Store(tmp_path, os.environ.get("DATABASE_URL", ""))
+    jid = st.enqueue("noop", {"x": 1})
+    job = st.claim_job("w1")
+    while job and job["id"] != jid:  # a shared Postgres may hold other tests' jobs
+        st.finish_job(job["id"])
+        job = st.claim_job("w1")
+    assert job and job["id"] == jid
+    assert st.requeue_stale_jobs(older_than_s=-1) >= 1
+    assert st.job(jid)["status"] == "queued"
+    st.close()
+
+
+def test_many_people_at_once_share_one_sample(client):
+    import concurrent.futures as cf
+    phones = [other_device() for _ in range(12)]
+    with cf.ThreadPoolExecutor(12) as ex:
+        ids = list(ex.map(lambda c: c.post("/api/manuals/sample?kind=device").json()["id"], phones))
+    assert len(set(ids)) == 1  # one copy, read once, for everyone

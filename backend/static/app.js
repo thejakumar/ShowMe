@@ -28,13 +28,24 @@ function save(key, value) {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const $ = (sel, root = view) => root.querySelector(sel);
 
-async function api(path, { method = "GET", json, form } = {}) {
+// Each page render gets a number. A response that arrives after the person has moved to another page is
+// dropped (the promise never settles), so a slow request can't paint an old page over the new one.
+let renderGen = 0;
+const STALE = new Promise(() => {});
+
+async function api(path, { method = "GET", json, form, keep = false } = {}) {
+  const gen = renderGen;
   const opts = { method, headers: {} };
   if (json) { opts.body = JSON.stringify(json); opts.headers["Content-Type"] = "application/json"; }
   if (form) opts.body = form;
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.detail || `Request failed (${res.status})`);
+  if (!keep && gen !== renderGen) return STALE;
+  if (!res.ok) {
+    const err = new Error(data.error || data.detail || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -100,7 +111,7 @@ const CAMERA_ICON = `<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M6 15h
 // ---------------------------------------------------------------- header: engine + privacy switch
 
 async function loadStatus() {
-  app.status = await api("/api/status");
+  app.status = await api("/api/status", { keep: true });
   const engine = document.getElementById("engine");
   engine.hidden = false;
   engine.className = "engine" + (app.status.mock ? " mock" : "");
@@ -140,10 +151,11 @@ document.querySelectorAll(".privacy button").forEach((b) => b.addEventListener("
 
 const routes = {
   "": home, assemble, session: sessionView, car: carView, learn: learnView, team: teamView,
-  device: deviceView, pack: packView, brand: brandView, scan: scanView, link: linkView,
+  device: deviceView, pack: packView, brand: brandView, scan: scanView, link: linkView, account: accountView, join: joinView,
 };
 
 async function render() {
+  const gen = ++renderGen;
   app.cleanup.forEach((fn) => fn());
   app.cleanup = [];
   if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -154,8 +166,11 @@ async function render() {
   try {
     await handler(parts.slice(1), new URLSearchParams(query || ""));
   } catch (e) {
-    view.innerHTML = `<a class="back" href="#/">Home</a><h2>That didn't load</h2><p class="muted">${esc(e.message)}</p>`;
+    if (gen !== renderGen) return;
+    if (e.status === 401) signInPrompt(e.message);
+    else view.innerHTML = `<a class="back" href="#/">Home</a><h2>That didn't load</h2><p class="muted">${esc(e.message)}</p>`;
   }
+  if (gen !== renderGen) return;
   view.focus({ preventScroll: true });
   window.scrollTo(0, 0);
 }
@@ -529,13 +544,19 @@ function stepStage(session, plan, order, ledger) {
     if (!app.voice && "speechSynthesis" in window) speechSynthesis.cancel();
     else say(step.instruction);
   });
+  let handsFreeCamera = false;
   $("#handsfree").addEventListener("click", (e) => {
     setHandsFree(!app.handsFree);
     e.currentTarget.setAttribute("aria-pressed", String(app.handsFree));
     $("#voice").setAttribute("aria-pressed", String(app.voice));
     toast(app.handsFree ? "Hands-free on: prop the phone up. I'll talk you through it and move on when each step is right." : "Hands-free off.");
-    if (app.handsFree) { startVoice(); if (liveSupported() && !liveRunning && !passed) liveCheck(); }
-    else { activeVoice?.stop(); activeVoice = null; $("#listening").hidden = true; }
+    if (app.handsFree) { startVoice(); if (liveSupported() && !liveRunning && !passed) { liveCheck(); handsFreeCamera = true; } }
+    else {
+      const camOn = handsFreeCamera && liveRunning;
+      activeVoice?.stop(); activeVoice = null; $("#listening").hidden = true;
+      handsFreeCamera = false;
+      if (camOn) { stopLive?.(); render(); }  // the camera hands-free switched on goes off with it
+    }
   });
 
   // ---- voice commands while hands are busy
@@ -544,8 +565,9 @@ function stepStage(session, plan, order, ledger) {
     const hint = $("#listening");
     activeVoice = listen({
       onState: (st) => {
+        if (st === "off" || !activeVoice && st !== "listening" && st !== "blocked") { hint.hidden = true; return; }
         hint.hidden = false;
-        hint.textContent = st === "blocked" ? "The microphone is blocked, so voice commands are off. The camera still coaches you."
+        hint.textContent = st === "paused" ? "Paused while I talk." : st === "blocked" ? "The microphone is blocked, so voice commands are off. The camera still coaches you."
           : `Listening. Say "next", "go to step 3", "where am I", "repeat", "check", "show me" or "parts".`;
       },
       onHeard: (t) => { hint.textContent = `Heard: "${t}"`; },
@@ -1113,7 +1135,7 @@ async function teamView() {
     <a class="back" href="#/">Home</a>
     <div class="stack-l">
       <div class="stack">
-        <h2>Training records</h2>
+        <h2>${app.status?.multi_user && !app.me?.workspace ? "Your training" : "Training records"}${app.me?.workspace ? ` <span class="muted small">${esc(app.me.workspace.name)}</span>` : ""}</h2>
         <p class="muted">Who is signed off on what. A sign-off means the camera checked every step against the manual; anything a person confirmed themselves is counted separately.</p>
         <div class="kpis">
           <div><b>${people.size}</b><span>${people.size === 1 ? "person" : "people"} trained</span></div>
@@ -1162,7 +1184,7 @@ function traceRow(t) {
 // ---------------------------------------------------------------- machines and devices: tour, ask, guided tasks
 
 async function startSession(manualId, packCode) {
-  const person = load("person", "") || "Guest";
+  const person = app.me?.user?.name || load("person", "") || "";
   const s = await api("/api/sessions", { method: "POST", json: { person, manual_id: manualId, mode: app.mode, pack_code: packCode || null } });
   return s;
 }
@@ -1618,6 +1640,145 @@ async function linkView(_, query) {
   if (preset) $("#link-form").requestSubmit();
 }
 
+
+// ---------------------------------------------------------------- accounts: brands and employers sign in, staff join
+
+async function loadMe() {
+  try { app.me = await api("/api/me", { keep: true }); } catch { app.me = null; }
+  paintAccount();
+}
+
+function paintAccount() {
+  const a = document.getElementById("account");
+  if (!a) return;
+  const me = app.me;
+  a.hidden = false;
+  a.textContent = me?.user ? (me.workspace ? me.workspace.name : me.user.name) : "Sign in";
+  a.title = me?.user ? `Signed in as ${me.user.name}${me.workspace ? ` · ${me.workspace.name}` : ""}` : "For brands and employers";
+}
+
+async function accountView([], query) {
+  await loadMe();
+  const me = app.me || {};
+  const next = query.get("next") || "";
+  const go = () => { location.hash = next || "#/"; };
+  if (me.user) {
+    const ws = me.workspace;
+    const joinLink = ws?.join_code ? `${location.origin}/#/join/${ws.join_code}` : "";
+    view.innerHTML = `
+      <a class="back" href="#/">Home</a>
+      <div class="stack-l">
+        <div class="stack">
+          <h2>${esc(me.user.name)}</h2>
+          ${me.user.email ? `<p class="muted">${esc(me.user.email)}</p>` : `<p class="muted">Joined with a team code on this device.</p>`}
+        </div>
+        ${ws ? `<section class="stack card">
+          <p class="pack-brand">Workspace${ws.role === "owner" ? " · you own it" : ""}</p>
+          <h3>${esc(ws.name)}</h3>
+          ${me.workspaces.length > 1 ? `<div class="field"><label for="ws">Switch workspace</label><select id="ws">${me.workspaces.map((w) => `<option value="${w.id}" ${w.id === ws.id ? "selected" : ""}>${esc(w.name)}</option>`).join("")}</select></div>` : ""}
+          ${ws.join_code ? `<div class="stack">
+            <p><strong>Add your team:</strong> they open this link on their phone (or enter the code), type their name, and their training lands on your records.</p>
+            <p class="join-code" aria-label="Join code">${esc(ws.join_code)}</p>
+            <div class="row"><button class="btn" id="copy" type="button">Copy the invite link</button><span class="small muted mono">${esc(joinLink)}</span></div>
+          </div>` : ""}
+          <div class="row"><a class="btn" href="#/team">Training records</a><a class="btn" href="#/brand">QR guides</a></div>
+        </section>` : `<p>You're not in a workspace yet. <a href="#/join">Join one with a code</a>.</p>`}
+        <div><button class="btn quiet" id="out" type="button">Sign out</button></div>
+      </div>`;
+    $("#ws")?.addEventListener("change", async (e) => {
+      app.me = await api("/api/auth/workspace", { method: "POST", json: { id: e.target.value } });
+      paintAccount(); render();
+    });
+    $("#copy")?.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(joinLink); toast("Invite link copied."); } catch { toast(joinLink); }
+    });
+    $("#out").addEventListener("click", async () => { await api("/api/auth/logout", { method: "POST" }); app.me = null; await loadMe(); location.hash = "#/"; });
+    return;
+  }
+  view.innerHTML = `
+    <a class="back" href="#/">Home</a>
+    <div class="stack-l">
+      <div class="stack">
+        <h2>For brands and employers</h2>
+        <p class="muted">Shoppers never need an account. A workspace keeps your QR guide dashboards, your machines and your team's training records private to your company.</p>
+      </div>
+      <form class="stack card" id="signin">
+        <h3>Sign in</h3>
+        <div class="field"><label for="si-email">Email</label><input id="si-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="si-pw">Password</label><input id="si-pw" type="password" autocomplete="current-password" required></div>
+        <button class="btn primary" type="submit">Sign in</button>
+      </form>
+      <form class="stack card" id="join">
+        <h3>Join your team</h3>
+        <p class="muted small">Your employer gave you a code. No password needed.</p>
+        <div class="field"><label for="j-code">Team code</label><input id="j-code" class="code-input" autocomplete="off" autocapitalize="characters" required></div>
+        <div class="field"><label for="j-name">Your name</label><input id="j-name" autocomplete="name" required value="${esc(load("person", ""))}"></div>
+        <button class="btn" type="submit">Join</button>
+      </form>
+      ${me.allow_signup !== false ? `<form class="stack card" id="signup">
+        <h3>Create a workspace</h3>
+        <div class="field"><label for="su-ws">Company</label><input id="su-ws" autocomplete="organization" required placeholder="Nordlund Home"></div>
+        <fieldset class="field choice"><legend>What will you use it for?</legend>
+          <label><input type="radio" name="kind" value="brand"> <span><strong>Guides for our products</strong><br><span class="small muted">QR codes on the box, and where customers struggle.</span></span></label>
+          <label><input type="radio" name="kind" value="employer"> <span><strong>Training our staff</strong><br><span class="small muted">Machines at work and signed-off training records.</span></span></label>
+          <label><input type="radio" name="kind" value="both" checked> <span><strong>Both</strong></span></label>
+        </fieldset>
+        <div class="field"><label for="su-name">Your name</label><input id="su-name" autocomplete="name" required></div>
+        <div class="field"><label for="su-email">Work email</label><input id="su-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="su-pw">Password <span class="muted small">(8 or more characters)</span></label><input id="su-pw" type="password" autocomplete="new-password" minlength="8" required></div>
+        <button class="btn primary" type="submit">Create workspace</button>
+      </form>` : ""}
+    </div>`;
+  const done = async (p) => { try { app.me = await p; paintAccount(); toast(`Welcome, ${app.me.user.name}.`); go(); } catch (e) { toast(e.message, "error"); } };
+  $("#signin").addEventListener("submit", (e) => { e.preventDefault(); done(api("/api/auth/login", { method: "POST", json: { email: $("#si-email").value, password: $("#si-pw").value } })); });
+  $("#join").addEventListener("submit", (e) => {
+    e.preventDefault(); save("person", $("#j-name").value.trim());
+    done(api("/api/auth/join", { method: "POST", json: { code: $("#j-code").value, name: $("#j-name").value } }));
+  });
+  $("#signup")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    done(api("/api/auth/signup", { method: "POST", json: { workspace: $("#su-ws").value, kind: view.querySelector('[name="kind"]:checked').value,
+      name: $("#su-name").value, email: $("#su-email").value, password: $("#su-pw").value } }));
+  });
+}
+
+async function joinView([code]) {
+  await loadMe();
+  view.innerHTML = `
+    <div class="stack-l">
+      <div class="stack">
+        <p class="pack-brand">ShowMe · team training</p>
+        <h1>Join your team</h1>
+        <p class="lede">Type your name. Your training on your team's machines is then signed off under it, step by step, by the camera.</p>
+      </div>
+      <form class="stack" id="join">
+        <div class="field"><label for="j-code">Team code</label><input id="j-code" class="code-input" value="${esc(code || "")}" autocomplete="off" autocapitalize="characters" required></div>
+        <div class="field"><label for="j-name">Your name</label><input id="j-name" autocomplete="name" required value="${esc(app.me?.user?.name || load("person", ""))}"></div>
+        <button class="btn primary big" type="submit">Join</button>
+      </form>
+    </div>`;
+  $("#join").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    save("person", $("#j-name").value.trim());
+    try {
+      app.me = await api("/api/auth/join", { method: "POST", json: { code: $("#j-code").value, name: $("#j-name").value } });
+      paintAccount();
+      toast(`You're in ${app.me.workspace.name}.`);
+      location.hash = "#/assemble?use=machine";
+    } catch (err) { toast(err.message, "error"); }
+  });
+}
+
+function signInPrompt(message) {
+  view.innerHTML = `
+    <a class="back" href="#/">Home</a>
+    <div class="stack">
+      <h2>Sign in to your workspace</h2>
+      <p class="muted">${esc(message || "This page belongs to a brand or employer workspace.")}</p>
+      <div class="row"><a class="btn primary" href="#/account?next=${encodeURIComponent(location.hash)}">Sign in or create a workspace</a><a class="btn" href="#/join">Join with a team code</a></div>
+    </div>`;
+}
+
 // ---------------------------------------------------------------- start
 
-loadStatus().catch((e) => toast(e.message, "error")).finally(render);
+Promise.all([loadStatus(), loadMe()]).catch((e) => toast(e.message, "error")).finally(render);

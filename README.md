@@ -105,6 +105,18 @@ Choose a manual under **Train on a machine** or **Learn a device** (or try the s
 | `APPRENTICE_MOCK` | auto | `1` forces mock mode even with a key. |
 | `PUBLIC_URL` | (empty) | Address printed in QR codes, for example an https tunnel. Empty means this PC's Wi-Fi address. |
 
+## Host it for many people
+
+On one PC, `run.bat` is all you need. To serve many shoppers, brands and employers at once, ShowMe runs as stateless web servers plus job workers on Postgres: `docker compose up -d --build` starts Postgres, the web app and two workers. With `DATABASE_URL` set, sign-in turns on:
+
+- **Shoppers** never sign in. Their sessions belong to their phone.
+- **Brands and employers** create a workspace at `#/account`. Their QR dashboards, machines and training records are visible only to members.
+- **Employees** join at `#/join/CODE` with the workspace's join code and their name. No password.
+- **Products are read once.** The same manual or store link (Amazon, IKEA...) is turned into a guide once and shared with everyone who asks for it.
+- Slow model work runs in a job queue. Every call to Muse is rate-limited per person.
+
+Architecture, settings and scaling steps are in [DEPLOY.md](DEPLOY.md).
+
 ## How it works
 
 ```
@@ -117,7 +129,8 @@ FastAPI backend ---------------------------------------------+
   training.py  parts inventory, show a step's parts, check    |
   lessons.py   room objects -> lesson -> science review       |
   car.py       engine-bay labels, warning lights              |
-  store.py     SQLite + files in data/                        |
+  store.py     SQLite or Postgres + files in data/            |
+  jobs.py      job queue: manuals, store links, 3D pre-builds |
         |                                                     |
 Meta Model API: Muse Spark, Muse Wonder, SAM 3.1 -------------+
 ```

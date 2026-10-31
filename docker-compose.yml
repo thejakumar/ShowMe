@@ -1,0 +1,48 @@
+# One host: Postgres, web servers and job workers. `docker compose up -d --build`, then open http://localhost:8000
+# Put HTTPS in front (Caddy, nginx, a cloud load balancer): phones need it for the live camera and voice.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: showme
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: showme
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U showme"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build: .
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://showme:${POSTGRES_PASSWORD:-change-me}@db:5432/showme
+      MULTI_USER: "1"
+      RUN_WORKER: "0"          # the worker service below does the background jobs
+      WEB_CONCURRENCY: "2"
+    volumes: [files:/data]     # manuals, photos and 3D scenes, shared with the workers
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["sh", "-c", "cd backend && python -m apprentice.worker"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://showme:${POSTGRES_PASSWORD:-change-me}@db:5432/showme
+      MULTI_USER: "1"
+      WORKER_CONCURRENCY: "3"
+    volumes: [files:/data]
+    depends_on:
+      db: {condition: service_healthy}
+    deploy:
+      replicas: 2              # more workers = more manuals and links read at once
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  files:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .store import Store
 
 EVAL_PERSON = "__eval__"  # sessions created by eval/run.py stay out of the passport and export
@@ -14,13 +16,16 @@ def _final_by_step(results: list[dict]) -> dict[int, dict]:
     return last
 
 
-def passport(store: Store) -> list[dict]:
-    manuals = {m["id"]: m for m in store.manuals()}
+def passport(store: Store, sessions: Optional[list[dict]] = None) -> list[dict]:
+    """Training records for the given sessions (default: every session, on one PC)."""
+    cache: dict[str, Optional[dict]] = {}
     rows = []
-    for s in store.sessions():
+    for s in store.sessions() if sessions is None else sessions:
         if s["person"] == EVAL_PERSON:
             continue
-        manual = store.manual(s["manual_id"]) if s["manual_id"] in manuals else None
+        if s["manual_id"] not in cache:
+            cache[s["manual_id"]] = store.manual(s["manual_id"])
+        manual = cache[s["manual_id"]]
         plan = (manual or {}).get("plan") or {}
         total = len(plan.get("steps", []))
         results = store.results(s["id"])
@@ -47,13 +52,13 @@ def passport(store: Store) -> list[dict]:
     return rows
 
 
-def robot_export(store: Store) -> dict:
+def robot_export(store: Store, sessions: Optional[list[dict]] = None) -> dict:
     """One episode per session: the task, each step's instruction and done-when, the photo, the verdict.
 
     The shape is deliberately plain JSON so it can be converted to any robot-learning format later.
     """
     episodes = []
-    for s in store.sessions():
+    for s in store.sessions() if sessions is None else sessions:
         if s["person"] == EVAL_PERSON:
             continue
         manual = store.manual(s["manual_id"])

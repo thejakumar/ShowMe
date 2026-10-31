@@ -78,6 +78,21 @@ class Settings:
     # Address printed in QR codes (an https tunnel or your domain). Empty: this PC's Wi-Fi address and port.
     public_url: str = field(default_factory=lambda: _str("PUBLIC_URL", "").rstrip("/"))
 
+    # ---- hosting for many users
+    # postgresql://user:pass@host:5432/db for many users and several servers. Empty: one SQLite file in data/.
+    database_url: str = field(default_factory=lambda: _str("DATABASE_URL", ""))
+    # Multi-user: brand dashboards, training records and uploads are private to each workspace, and people sign
+    # in. Defaults to on with Postgres and off on a single PC (where everything is visible, as before).
+    multi_user: bool = field(default_factory=lambda: _bool("MULTI_USER", bool(os.getenv("DATABASE_URL"))))
+    allow_signup: bool = field(default_factory=lambda: _bool("ALLOW_SIGNUP", True))
+    # Run the job worker inside the web process (one PC). Set 0 when running separate `python -m apprentice.worker`.
+    run_worker: bool = field(default_factory=lambda: _bool("RUN_WORKER", True))
+    worker_concurrency: int = field(default_factory=lambda: int(_str("WORKER_CONCURRENCY", "3")))
+    # Requests per person (or address) that call Meta's models. Live camera frames have their own, higher limit.
+    rate_per_minute: int = field(default_factory=lambda: int(_str("RATE_PER_MINUTE", "30")))
+    live_rate_per_minute: int = field(default_factory=lambda: int(_str("LIVE_RATE_PER_MINUTE", "90")))
+    uploads_per_hour: int = field(default_factory=lambda: int(_str("UPLOADS_PER_HOUR", "20")))
+
     @property
     def private_vision(self) -> bool:
         """True when part finding runs on hardware you control (no frames sent to the cloud)."""

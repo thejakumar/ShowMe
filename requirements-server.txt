@@ -1,0 +1,3 @@
+# Extra packages for hosting many users (Postgres). Not needed on a single PC.
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
