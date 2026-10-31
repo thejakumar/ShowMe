@@ -498,3 +498,34 @@ fieldset.choice input { margin-top: 3px; accent-color: var(--ink); width: 18px; 
 .proof { border-top: 1px solid var(--rule); padding-top: 14px; }
 .proof summary { cursor: pointer; }
 .proof > * + * { margin-top: 10px; }
+
+/* ---------- step page, user-tested: instruction first, arrows, tool chips */
+.step-head { display: flex; align-items: center; gap: 14px; }
+.step-head .step-title { flex: 1; min-width: 0; }
+.step-arrows { display: flex; gap: 6px; flex: none; align-self: center; }
+.step-arrows .arrow { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--ink);
+  background: var(--sheet); color: var(--ink); text-decoration: none; font-size: 26px; line-height: 1; padding-bottom: 3px; }
+.step-arrows .arrow:hover { background: color-mix(in srgb, var(--ink) 8%, var(--sheet)); }
+.instruction { font-size: 20px; line-height: 1.4; font-weight: 500; }
+@media (min-width: 760px) { .instruction { font-size: 22px; } }
+.donewhen { padding: 10px 14px; border-left: 4px solid var(--pass); background: var(--pass-bg); border-radius: var(--radius-s); }
+.donewhen strong { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--pass); }
+.step-more { border: 1px solid var(--rule); border-radius: var(--radius-s); padding: 8px 12px; background: var(--sheet); }
+.step-more summary { cursor: pointer; font-weight: 600; color: var(--ink-2); }
+.step-more > * + * { margin-top: 8px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.tool { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1.5px solid var(--rule); background: var(--sheet);
+  color: var(--ink); font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.tool:hover { border-color: var(--ink); }
+.tool.toggle { position: relative; padding-left: 50px; }
+.tool.toggle::before { content: ""; position: absolute; left: 12px; top: 50%; width: 30px; height: 18px; margin-top: -9px;
+  border-radius: 999px; background: var(--rule); transition: background .15s; }
+.tool.toggle::after { content: ""; position: absolute; left: 14px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s; }
+.tool.toggle[aria-pressed="true"] { border-color: var(--ink); }
+.tool.toggle[aria-pressed="true"]::before { background: var(--pass); }
+.tool.toggle[aria-pressed="true"]::after { transform: translateX(12px); }
+@media (prefers-reduced-motion: reduce) { .tool.toggle::before, .tool.toggle::after { transition: none; } }
+.dock .inner { flex-wrap: wrap; }
+.dock .btn { flex: 1 1 140px; }
+.privacy[hidden] { display: none; }

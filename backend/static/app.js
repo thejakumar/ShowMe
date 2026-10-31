@@ -110,6 +110,7 @@ async function loadStatus() {
     ? "Canned answers, no API calls. Add MODEL_API_KEY to .env to go live."
     : `Spark: ${app.status.models.spark}, Wonder: ${app.status.models.wonder}, vision: ${app.status.vision_backend}`;
   const hybrid = document.querySelector('.privacy [data-mode="hybrid"]');
+  document.querySelector(".privacy").hidden = !app.status.private_available; // jargon for most people: show only when it can be used
   if (!app.status.private_available) {
     hybrid.disabled = true;
     hybrid.title = "Hybrid mode needs SAM 3.1 on your own GPU. See the README.";
@@ -221,14 +222,8 @@ async function assemble(_, query) {
         </fieldset>` : `<input type="hidden" name="use_case" value="assembly">`}
         <button class="btn primary" type="submit">Upload and read the manual</button>
       </form>
-      <form class="stack" id="start" hidden>
-        <h3 id="start-title"></h3>
-        <div class="field"><label for="person">Who's learning?</label><input id="person" name="person" value="${esc(load("person", ""))}" autocomplete="name" required></div>
-        <button class="btn primary" type="submit">Start</button>
-      </form>
     </div>`;
 
-  let chosen = null;
   let timer = null;
   const list = $("#manuals");
 
@@ -241,28 +236,33 @@ async function assemble(_, query) {
           <div class="status ${m.status === "error" ? "error" : ""}">${m.status === "ready" ? `${use === "machine" ? (m.use_case === "training" ? "At work · " : "At home · ") : ""}${m.page_count ? `${m.page_count} pages, ready` : "Ready"}` : m.status === "error" ? esc(m.error || "Could not read this manual") : esc(m.progress)}</div></div>
         ${m.status === "ready" ? `<button class="btn" data-pick="${m.id}" data-title="${esc(m.title)}" type="button">Choose</button>` : m.status === "processing" ? `<span class="busy small" aria-label="Reading"></span>` : ""}
       </li>`).join("") : `<li class="muted">No ${noun} manuals yet. Upload one below, or try the sample.</li>`;
-    list.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => pick(b.dataset.pick, b.dataset.title)));
+    list.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => pick(b.dataset.pick)));
+    const ready = waitingFor && mine.find((m) => m.id === waitingFor && m.status === "ready");
+    if (ready) { waitingFor = null; pick(ready.id); return; }
+    const sampleBtn = $("#sample");
+    const reading = waitingFor && mine.find((m) => m.id === waitingFor);
+    if (sampleBtn && reading) sampleBtn.textContent = reading.status === "error" ? "Couldn't read the sample" : `Reading the sample: ${reading.progress || "starting"}…`;
     clearTimeout(timer);
     if (mine.some((m) => m.status === "processing")) timer = setTimeout(refresh, 1500);
   }
   app.cleanup.push(() => clearTimeout(timer));
 
-  function pick(id, title) {
+  async function pick(id) {
     if (use === "machine") { location.hash = `#/device/${id}`; return; } // machines and devices open their page
-    chosen = id;
-    $("#start").hidden = false;
-    $("#start-title").textContent = title;
-    $("#person").focus();
-    $("#start").scrollIntoView({ behavior: "smooth", block: "center" });
+    try { // assembling at home: no form, start straight away
+      const s = await startSession(id, null);
+      location.hash = `#/session/${s.id}/inventory`;
+    } catch (err) { toast(err.message, "error"); }
   }
+  let waitingFor = null; // the sample (or an upload) to open by itself once it's read
 
   $("#sample")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     try {
       const m = await api(`/api/manuals/sample${e.target.dataset.kind ? `?kind=${e.target.dataset.kind}` : ""}`, { method: "POST" });
+      if (m.status === "ready") { pick(m.id); return; }
+      waitingFor = m.id; // opens by itself when Muse has read it
       await refresh();
-      if (m.status === "ready") pick(m.id, m.title);
-      else toast("Reading the sample manual with Muse Spark");
     } catch (err) { toast(err.message, "error"); }
     e.target.disabled = false;
   });
@@ -272,22 +272,13 @@ async function assemble(_, query) {
     const btn = e.target.querySelector("button");
     btn.disabled = true;
     try {
-      await api("/api/manuals", { method: "POST", form: new FormData(e.target) });
+      const up = await api("/api/manuals", { method: "POST", form: new FormData(e.target) });
+      waitingFor = up.id; // opens by itself when it's read
       e.target.reset();
-      toast("Uploaded. Muse Spark is reading each page; Muse Wonder writes the plan.");
+      toast("Uploaded. Muse Spark is reading each page; this opens by itself when it's ready.");
       await refresh();
     } catch (err) { toast(err.message, "error"); }
     btn.disabled = false;
-  });
-
-  $("#start").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const person = $("#person").value.trim();
-    save("person", person);
-    try {
-      const s = await api("/api/sessions", { method: "POST", json: { person, manual_id: chosen, mode: app.mode } });
-      location.hash = `#/session/${s.id}/inventory`;
-    } catch (err) { toast(err.message, "error"); }
   });
 
   await refresh();
@@ -393,8 +384,8 @@ function inventoryStage(session, plan) {
       <div id="result"></div>
     </div>
     <div class="dock"><div class="inner">
-      <button class="btn" id="where" type="button">Already started? Find my place</button>
-      <a class="btn" href="#/session/${session.id}/step/${plan.steps[0]?.order || 1}">Skip the parts check</a>
+      <button class="btn" id="where" type="button">Already started?</button>
+      <a class="btn" href="#/session/${session.id}/step/${plan.steps[0]?.order || 1}">Skip to step 1</a>
     </div></div>`;
 
   const area = $("#area"), result = $("#result"), dock = $(".dock .inner");
@@ -460,14 +451,27 @@ function stepStage(session, plan, order, ledger) {
   const leftAfter = ledger?.after?.find((a) => a.order === step.order)?.left || {};
   const usesHardware = (step.parts_used || []).filter((u) => hw.has(u.label));
   const prev = idx ? plan.steps[idx - 1] : null;
+  const nextHref = last ? `#/session/${session.id}/done` : `#/session/${session.id}/step/${plan.steps[idx + 1].order}`;
+  const prevHref = prev ? `#/session/${session.id}/step/${prev.order}` : firstBack[0];
+  const extras = step.why || usesHardware.length;
   view.innerHTML = `
-    <a class="back" href="${prev ? `#/session/${session.id}/step/${prev.order}` : firstBack[0]}">${prev ? `Back to step ${prev.order}` : firstBack[1]}</a>
+    <a class="back" href="${firstBack[0]}">${firstBack[1]}</a>
     ${plan.question ? `<p class="task-q">${esc(plan.question)}</p>` : ""}
     ${plan.source?.kind === "listing" ? `<p class="tag extra source-tag">General step from the store listing, not the official manual</p>` : ""}
     ${progressBar(plan, idx + 1, session)}
     <div class="stack">
-      <div class="step-head"><span class="step-no">${step.order}</span><div><p class="muted small">Step ${idx + 1} of ${plan.steps.length}</p><h2>${esc(step.title)}</h2></div></div>
-      ${allStepsList(plan, session, step.order)}
+      <div class="step-head">
+        <span class="step-no">${step.order}</span>
+        <div class="step-title"><p class="muted small">Step ${idx + 1} of ${plan.steps.length}</p><h2>${esc(step.title)}</h2></div>
+        <nav class="step-arrows" aria-label="Previous or next step">
+          <a class="arrow" href="${prevHref}" aria-label="${prev ? `Previous: step ${prev.order}` : firstBack[1]}">‹</a>
+          <a class="arrow" href="${nextHref}" aria-label="${last ? "Finish" : `Next: step ${plan.steps[idx + 1].order}`}">›</a>
+        </nav>
+      </div>
+      <p class="instruction">${esc(step.instruction)}</p>
+      ${step.parts_used?.length ? `<div class="uses-strip">${step.parts_used.map((u) => `<span><span class="callout">${esc(u.label)}</span>${u.quantity}x ${esc(names[u.label] || "")}</span>`).join("")}</div>` : ""}
+      ${step.warning ? `<p class="warn">${esc(step.warning)}</p>` : ""}
+      <p class="headsup" id="headsup" hidden></p>
       <div class="viewer">
         <nav class="tabs view-tabs" aria-label="How to see this step">
           <button type="button" data-view="manual" aria-current="true">Manual</button>
@@ -477,22 +481,21 @@ function stepStage(session, plan, order, ledger) {
         <div id="stage" class="stage"></div>
         <div id="stage-bar" class="stage-bar" hidden></div>
       </div>
-      <p class="headsup" id="headsup" hidden></p>
-      <p style="font-size:18px">${esc(step.instruction)}</p>
-      ${step.parts_used?.length ? `<div class="uses-strip">${step.parts_used.map((u) => `<span><span class="callout">${esc(u.label)}</span>${u.quantity}x ${esc(names[u.label] || "")}</span>`).join("")}</div>` : ""}
-      ${step.warning ? `<p class="warn">${esc(step.warning)}</p>` : ""}
-      ${step.why ? `<p class="why">Why it matters: ${esc(step.why)}</p>` : ""}
-      ${usesHardware.length ? `<p class="ledger-line">After this step you should have ${usesHardware.map((u) => `<b>${leftAfter[u.label] ?? "?"}</b> ${esc(names[u.label] || "")} <span class="callout">${esc(u.label)}</span>`).join(" and ")} left over.</p>` : ""}
-      <p class="muted small">Done when: ${esc(step.done_when)}</p>
-      <div class="row">
-        <button class="btn quiet" id="voice" type="button" aria-pressed="${app.voice}">${app.voice ? "Reading aloud" : "Read aloud: off"}</button>
-        <button class="btn quiet" id="handsfree" type="button" aria-pressed="${app.handsFree}">${app.handsFree ? "Hands-free: on" : "Hands-free: off"}</button>
-        <button class="btn quiet" id="whereami" type="button">Where am I?</button>
-        ${hw.size && idx ? `<button class="btn quiet" id="ledger" type="button">Count leftover hardware</button>` : ""}
+      <p class="donewhen"><strong>Done when</strong> ${esc(step.done_when)}</p>
+      ${extras ? `<details class="step-more"><summary>${step.why ? "Why it matters" : "Leftover hardware"}${step.why && usesHardware.length ? " · leftover hardware" : ""}</summary>
+        ${step.why ? `<p>${esc(step.why)}</p>` : ""}
+        ${usesHardware.length ? `<p class="ledger-line">After this step you should have ${usesHardware.map((u) => `<b>${leftAfter[u.label] ?? "?"}</b> ${esc(names[u.label] || "")} <span class="callout">${esc(u.label)}</span>`).join(" and ")} left over.</p>` : ""}
+      </details>` : ""}
+      <div class="toolbar" role="group" aria-label="Help with this step">
+        <button class="tool toggle" id="voice" type="button" aria-pressed="${app.voice}">Read aloud</button>
+        <button class="tool toggle" id="handsfree" type="button" aria-pressed="${app.handsFree}">Hands-free</button>
+        <button class="tool" id="whereami" type="button">Where am I?</button>
+        ${hw.size && idx ? `<button class="tool" id="ledger" type="button">Count leftovers</button>` : ""}
       </div>
       <p class="listening small" id="listening" hidden></p>
       <div id="area"></div>
       <div id="verdict"></div>
+      ${allStepsList(plan, session, step.order)}
     </div>
     <div class="dock"><div class="inner">
       ${step.parts_used?.length ? `<button class="btn" id="parts" type="button">Show the parts</button>` : ""}
@@ -522,16 +525,15 @@ function stepStage(session, plan, order, ledger) {
   $("#voice").addEventListener("click", (e) => {
     app.voice = !app.voice;
     save("voice", app.voice ? "on" : "off");
-    e.target.textContent = app.voice ? "Reading aloud" : "Read aloud: off";
-    e.target.setAttribute("aria-pressed", String(app.voice));
+    e.currentTarget.setAttribute("aria-pressed", String(app.voice));
     if (!app.voice && "speechSynthesis" in window) speechSynthesis.cancel();
     else say(step.instruction);
   });
   $("#handsfree").addEventListener("click", (e) => {
     setHandsFree(!app.handsFree);
-    e.target.textContent = app.handsFree ? "Hands-free: on" : "Hands-free: off";
-    e.target.setAttribute("aria-pressed", String(app.handsFree));
-    $("#voice").textContent = app.voice ? "Reading aloud" : "Read aloud: off";
+    e.currentTarget.setAttribute("aria-pressed", String(app.handsFree));
+    $("#voice").setAttribute("aria-pressed", String(app.voice));
+    toast(app.handsFree ? "Hands-free on: prop the phone up. I'll talk you through it and move on when each step is right." : "Hands-free off.");
     if (app.handsFree) { startVoice(); if (liveSupported() && !liveRunning && !passed) liveCheck(); }
     else { activeVoice?.stop(); activeVoice = null; $("#listening").hidden = true; }
   });
@@ -829,6 +831,7 @@ function stepStage(session, plan, order, ledger) {
   const nextLabel = last ? "Finish" : `Next: step ${plan.steps[idx + 1].order}`;
 
   function showVerdict(r) {
+    requestAnimationFrame(() => verdictBox.scrollIntoView({ behavior: "smooth", block: "center" }));
     const heads = { pass: "Step checked", fail: "Not right yet", progress: "On the way", unsure: "Not sure from this photo" };
     const icons = { pass: "✓", fail: "!", progress: "→", unsure: "?" };
     const todo = r.verdict === "pass" ? [] : (r.next_steps || []);
