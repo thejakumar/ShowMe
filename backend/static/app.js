@@ -1126,7 +1126,9 @@ const SKILL_WORDS = { pick: "Pick", place: "Place", insert: "Insert", align: "Al
 
 async function robotView(_, query) {
   const [sum, manuals] = await Promise.all([api("/api/robot/summary"), api("/api/manuals")]);
-  const ready = manuals.filter((m) => m.status === "ready" && m.use_case !== "car");
+  const order = { assembly: 0, training: 1, device: 2, task: 3 };
+  const ready = manuals.filter((m) => m.status === "ready" && m.use_case !== "car")
+    .sort((a, b) => (order[a.use_case] ?? 4) - (order[b.use_case] ?? 4));
   let mid = query.get("manual") || ready[0]?.id || "";
   view.innerHTML = `
     <a class="back" href="#/team">Training records</a>

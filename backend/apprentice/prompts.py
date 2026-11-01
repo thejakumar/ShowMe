@@ -551,7 +551,7 @@ ROBOT_SYSTEM = (
 )
 
 
-def robot_prompt(plan: dict) -> str:
+def robot_prompt(plan: dict, use_case: str = "assembly") -> str:
     names = {p["label"]: p.get("name", p["label"]) for p in plan.get("parts", [])}
     parts = "\n".join(f"- {p['label']}: {p.get('name', '')} x{p.get('quantity', 1)}" for p in plan.get("parts", [])) or "- (none listed)"
     steps = "\n".join(
@@ -570,7 +570,11 @@ def robot_prompt(plan: dict) -> str:
         "tools": ["hex key F"], "notes": "Lay the panels flat on a soft surface first.",
     }
     return (
-        f"Product: {plan.get('product', '')}\n\nParts:\n{parts}\n\nSteps:\n{steps}\n\n"
+        f"Product: {plan.get('product', '')}\n"
+        + ("The robot assembles this product from its parts.\n" if use_case == "assembly" else
+           "The robot operates this machine: the labels are its controls (buttons, dials, tanks), which it presses, "
+           "turns, fills or plugs in rather than picking up.\n")
+        + f"\nParts:\n{parts}\n\nSteps:\n{steps}\n\n"
         "For every step, in order:\n"
         "- actions: 2 to 8 primitives. skill is one of pick, place, insert, align, screw, tighten, press, rotate, "
         "hold, connect, inspect. object uses the manual's part label and name. target says where it goes. detail "

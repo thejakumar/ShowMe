@@ -54,7 +54,7 @@ def _is_hardware(name: str) -> bool:
     return bool(re.search(r"screw|bolt|nut|dowel|pin|peg|cam|washer", name.lower()))
 
 
-def outline(plan: dict) -> dict:
+def outline(plan: dict, use_case: str = "") -> dict:
     """A rule-based robot outline from the step text: no model call. Used as the fallback, and labelled."""
     names = {p["label"]: p.get("name", p["label"]) for p in plan.get("parts", [])}
     steps = []
@@ -62,6 +62,16 @@ def outline(plan: dict) -> dict:
         text = (st.get("instruction") or "").lower()
         skill = next((k for k, rx in _VERBS if re.search(rx, text)), "place")
         actions = []
+        if (use_case or plan.get("use_case") or "assembly") != "assembly":  # a machine or device: operate its controls
+            do = skill if skill in ("rotate", "press", "connect", "insert") else "press"
+            for u in st.get("parts_used", []):
+                obj = f"{u['label']} {names.get(u['label'], u['label'])}".strip()
+                actions.append({"skill": do, "object": obj, "target": "", "tool": "", "detail": ""})
+            actions.append({"skill": "inspect", "object": "", "target": "", "tool": "camera", "detail": "check the done-when"})
+            steps.append({"order": st["order"], "title": st.get("title", ""), "actions": actions,
+                          "success_check": st.get("done_when") or st.get("instruction", ""),
+                          "needs_human": bool(st.get("warning")), "human_reason": st.get("warning") or "", "risks": []})
+            continue
         uses = sorted(st.get("parts_used", []), key=lambda u: _is_hardware(names.get(u["label"], "")))
         for u in uses:
             name = names.get(u["label"], u["label"])
@@ -103,7 +113,7 @@ def _clean(plan: dict, reply: RobotPlan) -> dict:
 
 
 async def robot_plan(store: Store, muse: MuseClient, settings: Settings, manual_id: str, plan: dict, *,
-                     refresh: bool = False) -> dict:
+                     use_case: str = "assembly", refresh: bool = False) -> dict:
     path = plan_path(store, manual_id)
     if path.exists() and not refresh:
         return {**json.loads(path.read_text(encoding="utf-8")), "cached": True}
@@ -111,8 +121,8 @@ async def robot_plan(store: Store, muse: MuseClient, settings: Settings, manual_
     try:
         reply = await muse.json(
             role="wonder", purpose="robot_plan", system=prompts.ROBOT_SYSTEM,
-            text=prompts.robot_prompt(plan), schema=RobotPlan, effort=settings.plan_effort,
-            ctx={"manual_id": manual_id}, mock_args={"plan": plan},
+            text=prompts.robot_prompt(plan, use_case), schema=RobotPlan, effort=settings.plan_effort,
+            ctx={"manual_id": manual_id}, mock_args={"plan": plan, "use_case": use_case},
         )
         data = _clean(plan, reply)
         if len(data["steps"]) < max(1, len(plan.get("steps", [])) // 2):
@@ -120,7 +130,7 @@ async def robot_plan(store: Store, muse: MuseClient, settings: Settings, manual_
     except MuseError as exc:
         data, error = None, str(exc)[:200]
     if data is None:
-        data, source = outline(plan), "simple outline"
+        data, source = outline(plan, use_case), "simple outline"
     result = {"manual_id": manual_id, "product": plan.get("product", ""), "source": source, "error": error, **data}
     if source == "Muse Wonder":
         path.write_text(json.dumps(result), encoding="utf-8")

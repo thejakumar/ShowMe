@@ -470,12 +470,12 @@ def _where(plan: dict | None = None, **_: Any) -> dict:
             "confidence": 0.8}
 
 
-def _robot(plan: dict | None = None, **_: Any) -> dict:
+def _robot(plan: dict | None = None, use_case: str = "assembly", **_: Any) -> dict:
     """A hand-written robot plan for the sample stool; any other manual gets the rule-based outline."""
     from . import robot
     plan = plan or sample.sample_plan()
     if plan.get("product") != "Birch step stool":
-        return robot.outline(plan)
+        return robot.outline(plan, use_case)
     A = lambda skill, obj="", target="", tool="", detail="": {"skill": skill, "object": obj, "target": target, "tool": tool, "detail": detail}  # noqa: E731
     return {"tools": ["F hex key"], "notes": "Work on a soft, flat surface so the birch faces don't scratch.", "steps": [
         {"order": 1, "actions": [A("pick", "B side panel", detail="lay flat, top edge toward the robot"),

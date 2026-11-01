@@ -1019,7 +1019,8 @@ async def get_robot_plan(mid: str, request: Request, refresh: bool = False):
     m = ready_manual(mid, request)
     if refresh or robot.cached_plan(S.store, mid) is None:
         limit(request)
-    return await robot.robot_plan(S.store, S.muse, S.settings, mid, m["plan"], refresh=refresh)
+    return await robot.robot_plan(S.store, S.muse, S.settings, mid, m["plan"], use_case=m.get("use_case") or "assembly",
+                                  refresh=refresh)
 
 
 @app.get("/api/robot/summary")
