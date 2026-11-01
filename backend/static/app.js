@@ -152,6 +152,7 @@ document.querySelectorAll(".privacy button").forEach((b) => b.addEventListener("
 const routes = {
   "": home, assemble, session: sessionView, car: carView, learn: learnView, team: teamView,
   device: deviceView, pack: packView, brand: brandView, scan: scanView, link: linkView, account: accountView, join: joinView,
+  robot: robotView,
 };
 
 async function render() {
@@ -187,6 +188,7 @@ const ICONS = {
   device: `<svg viewBox="0 0 64 64"><rect x="16" y="6" width="32" height="52" rx="5"/><circle class="accent" cx="32" cy="22" r="7"/><path d="M24 38h16M24 45h16"/><circle cx="32" cy="52" r="1.5"/></svg>`,
   scan: `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 20V8h12M44 8h12v12M56 44v12H44M20 56H8V44"/><rect class="accent" x="20" y="20" width="9" height="9"/><rect x="35" y="20" width="9" height="9"/><rect x="20" y="35" width="9" height="9"/><path d="M35 35h9v9"/></svg>`,
   qr: `<svg viewBox="0 0 64 64"><rect x="8" y="8" width="18" height="18"/><rect x="38" y="8" width="18" height="18"/><rect x="8" y="38" width="18" height="18"/><rect class="accent" x="14" y="14" width="6" height="6"/><path d="M38 38h6v6h-6zM50 38h6M38 50h6M50 50h6v6M44 44h6v6"/></svg>`,
+  robot: `<svg viewBox="0 0 64 64"><rect x="16" y="20" width="32" height="24" rx="5"/><circle class="accent" cx="26" cy="31" r="3"/><circle class="accent" cx="38" cy="31" r="3"/><path d="M32 20v-8M28 12h8M24 44v8M40 44v8M16 30h-6v10M48 30h6v10"/></svg>`,
   team: `<svg viewBox="0 0 64 64"><rect x="10" y="10" width="44" height="44" rx="4"/><path d="M18 24h28M18 34h28M18 44h16"/><path d="M42 42l4 4 8-9"/></svg>`,
 };
 
@@ -204,6 +206,7 @@ async function home() {
     <ul class="uses compact">
       <li><a href="#/brand">${ICONS.qr}<div><h3>Brands: a guide in every box</h3><p>Publish your manual as a QR code. See which step people get wrong and what they ask.</p></div><span class="go" aria-hidden="true">›</span></a></li>
       <li><a href="#/team">${ICONS.team}<div><h3>Employers: train staff on your machinery</h3><p>Every step verified by the camera. Training records show who is signed off on what.</p></div><span class="go" aria-hidden="true">›</span></a></li>
+      <li><a href="#/robot">${ICONS.robot}<div><h3>Robotics: teach a robot the same task</h3><p>Checked builds become robot training data. The manual becomes robot steps, and the camera check becomes your robot's success signal.</p></div><span class="go" aria-hidden="true">›</span></a></li>
     </ul>`;
 }
 
@@ -1116,6 +1119,108 @@ async function learnView() {
   }
 }
 
+// ---------------------------------------------------------------- teach a robot
+
+const SKILL_WORDS = { pick: "Pick", place: "Place", insert: "Insert", align: "Align", screw: "Screw", tighten: "Tighten",
+  press: "Press", rotate: "Rotate", hold: "Hold", connect: "Connect", inspect: "Check" };
+
+async function robotView(_, query) {
+  const [sum, manuals] = await Promise.all([api("/api/robot/summary"), api("/api/manuals")]);
+  const ready = manuals.filter((m) => m.status === "ready" && m.use_case !== "car");
+  let mid = query.get("manual") || ready[0]?.id || "";
+  view.innerHTML = `
+    <a class="back" href="#/team">Training records</a>
+    <div class="stack-l">
+      <div class="stack">
+        <h2>Teach a robot</h2>
+        <p class="muted">Every build people finish with ShowMe is a demonstration, step by step, checked by a camera against the manual. The same engine teaches a robot: training data, a robot task plan, and a success check your robot can call.</p>
+      </div>
+      <section class="stack card-plain">
+        <h3>1. Training data from real builds</h3>
+        <div class="kpis">
+          <div><b>${sum.episodes}</b><span>${sum.episodes === 1 ? "episode" : "episodes"}</span></div>
+          <div><b>${sum.frames}</b><span>labelled frames</span></div>
+          <div><b>${sum.corrections}</b><span>mistakes with the fix</span></div>
+        </div>
+        <p class="small muted">Each frame: the photo, the step's instruction, right or wrong, who decided (camera or person), and the correction that fixed a mistake. LeRobot-style folders, no names.${sum.products.length ? ` From: ${sum.products.map(esc).join(", ")}.` : ""}</p>
+        <div class="row">${sum.frames ? `<a class="btn primary" href="/api/export/robot-dataset.zip" download>Download the robot dataset (.zip)</a>` : `<a class="btn primary" href="#/assemble">Do a build to collect data</a>`}<a class="btn quiet" href="/api/export/robot-data" download>Raw episodes (JSON)</a></div>
+      </section>
+      <section class="stack card-plain">
+        <h3>2. The manual as robot steps</h3>
+        <p class="small muted">Muse Wonder breaks each step into robot actions, keeps the step's "done when" as its success check, and flags steps a person should do.</p>
+        ${ready.length ? `<div class="field"><label for="rm">Manual</label><select id="rm">${ready.map((m) => `<option value="${m.id}" ${m.id === mid ? "selected" : ""}>${esc(m.title)}</option>`).join("")}</select></div>
+        <div id="rplan"><button class="btn" id="build" type="button">Turn it into robot steps</button></div>`
+        : `<p>No manuals yet. <a href="#/assemble">Add one</a> or try the sample.</p>`}
+      </section>
+      <section class="stack card-plain">
+        <h3>3. A success check for your robot</h3>
+        <p class="small muted">After each step, your robot sends one camera frame. ShowMe answers success true or false and what's wrong: the same check people get, usable as a reward signal.</p>
+        <pre class="code">curl ${esc(location.origin)}/api/robot/check \\
+  -F manual_id=<span id="cm">${esc(mid)}</span> -F step=<span id="cs">1</span> -F photo=@frame.jpg</pre>
+        ${ready.length ? `<div class="row"><label class="sr-only" for="rs">Step</label><select id="rs"></select><button class="btn primary" id="try" type="button">Try it with a photo</button></div>` : ""}
+        <div id="rcheck" aria-live="polite"></div>
+      </section>
+    </div>`;
+  if (!ready.length) return;
+  const tries = {};
+  async function loadSteps() {
+    const m = await api(`/api/manuals/${mid}`);
+    $("#rs").innerHTML = (m.plan?.steps || []).map((st) => `<option value="${st.order}">Step ${st.order}: ${esc(st.title)}</option>`).join("");
+    $("#cm").textContent = mid; $("#cs").textContent = $("#rs").value || "1";
+  }
+  $("#rs").addEventListener("change", () => { $("#cs").textContent = $("#rs").value; $("#rcheck").innerHTML = ""; });
+  $("#rm").addEventListener("change", async () => {
+    mid = $("#rm").value;
+    $("#rplan").innerHTML = `<button class="btn" id="build" type="button">Turn it into robot steps</button>`;
+    $("#build").addEventListener("click", showPlan);
+    $("#rcheck").innerHTML = "";
+    await loadSteps();
+  });
+  async function showPlan(e) {
+    const btn = e?.currentTarget;
+    if (btn) busy(btn, "Muse Wonder is writing the robot steps…");
+    try {
+      const rp = await api(`/api/manuals/${mid}/robot-plan`);
+      $("#rplan").innerHTML = `
+        ${rp.source !== "Muse Wonder" ? `<p class="tag extra">Simple outline from the step text${rp.error ? `: Muse was unavailable` : ""}</p>` : ""}
+        ${rp.notes ? `<p class="small">${esc(rp.notes)}</p>` : ""}
+        <ol class="rsteps">${rp.steps.map((st) => `
+          <li>
+            <div class="title">${st.order}. ${esc(st.title)} ${st.needs_human ? `<span class="tag human">Needs a person</span>` : ""}</div>
+            <ul class="ractions">${st.actions.map((a) => `<li><span class="skill s-${esc(a.skill)}">${esc(SKILL_WORDS[a.skill] || a.skill)}</span> ${esc(a.object)}${a.target ? ` <span class="muted">→ ${esc(a.target)}</span>` : ""}${a.tool ? ` <span class="muted">with ${esc(a.tool)}</span>` : ""}${a.detail ? ` <span class="small muted">· ${esc(a.detail)}</span>` : ""}</li>`).join("")}</ul>
+            <p class="small"><b>Success when:</b> ${esc(st.success_check)}</p>
+            ${st.needs_human && st.human_reason ? `<p class="small muted">${esc(st.human_reason)}</p>` : ""}
+          </li>`).join("")}</ol>
+        <p class="small muted">${rp.tools?.length ? `Tools: ${rp.tools.map(esc).join(", ")}. ` : ""}<a href="/api/manuals/${mid}/robot-plan" target="_blank" rel="noopener">As JSON</a></p>`;
+    } catch (err) {
+      $("#rplan").innerHTML = `<p class="error">${esc(err.message)}</p><button class="btn" id="build" type="button">Try again</button>`;
+      $("#build").addEventListener("click", showPlan);
+    }
+  }
+  $("#build").addEventListener("click", showPlan);
+  $("#try").addEventListener("click", async (e) => {
+    const file = await takePhoto();
+    if (!file) return;
+    const step = $("#rs").value;
+    tries[`${mid}:${step}`] = (tries[`${mid}:${step}`] || 0) + 1;
+    const form = new FormData();
+    form.append("manual_id", mid); form.append("step", step); form.append("attempt", String(tries[`${mid}:${step}`]));
+    form.append("photo", file, "frame.jpg");
+    const out = $("#rcheck");
+    out.innerHTML = `<div class="busy" role="status">Muse Spark is checking the frame…</div>`;
+    try {
+      const r = await api("/api/robot/check", { method: "POST", form });
+      out.innerHTML = `<section class="verdict ${r.success ? "pass" : r.verdict === "unsure" ? "unsure" : "fail"}">
+        <h3>${r.success ? "✓ Success" : r.verdict === "unsure" ? "? Can't tell" : "✗ Not yet"} <span class="small muted">reward ${r.reward.toFixed(1)}</span></h3>
+        <p>${esc(r.observed)}</p>
+        ${r.fix ? `<p><b>Fix:</b> ${esc(r.fix)}</p>` : ""}
+        <p class="small muted">Checked against: ${esc(r.success_check)}</p>
+      </section>`;
+    } catch (err) { out.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+  });
+  await loadSteps();
+}
+
 // ---------------------------------------------------------------- training records (employers) + proof it runs on Muse
 
 const KIND_WORDS = { training: "Machine", device: "Device", assembly: "Assembly", task: "Task", car: "Car" };
@@ -1142,7 +1247,7 @@ async function teamView() {
           <div><b>${verifiedCount}</b><span>sign-offs</span></div>
           <div><b>${rows.reduce((a, r) => a + r.mistakes_caught, 0)}</b><span>mistakes caught and fixed</span></div>
         </div>
-        <div class="row"><a class="btn" href="#/assemble?use=machine">Add a machine</a><a class="btn" href="#/brand">Put a QR guide on a machine</a><a class="btn quiet" href="/api/passport.csv" download>Download as a spreadsheet (CSV)</a></div>
+        <div class="row"><a class="btn" href="#/assemble?use=machine">Add a machine</a><a class="btn" href="#/brand">Put a QR guide on a machine</a><a class="btn quiet" href="/api/passport.csv" download>Download as a spreadsheet (CSV)</a><a class="btn quiet" href="#/robot">Teach a robot with these builds</a></div>
       </div>
       ${people.size ? `<ul class="people">${[...people.entries()].map(([person, items]) => `
         <li class="person">
@@ -1158,7 +1263,7 @@ async function teamView() {
         <summary><strong>Proof it runs on Muse</strong> <span class="muted small">every call to Meta's models, live</span></summary>
         <p class="muted small"><span class="where cloud">cloud</span> sent to the Meta Model API, <span class="where local">local</span> stayed on your hardware${app.status?.mock ? `, <span class="where mock">mock</span> canned offline answer` : ""}. Also saved to <code>traces/</code>.</p>
         <ul class="traces" id="traces">${traces.map(traceRow).join("") || `<li class="muted">No calls yet.</li>`}</ul>
-        <p class="small"><a href="/api/export/robot-data" download>Export every session's steps, photos and verdicts (JSON)</a></p>
+
       </details>
     </div>`;
 

@@ -538,3 +538,19 @@ fieldset.choice input { margin-top: 3px; accent-color: var(--ink); width: 18px; 
 .join-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 28px; font-weight: 700; letter-spacing: .18em; }
 .code-input { text-transform: uppercase; letter-spacing: .12em; font-family: ui-monospace, Menlo, Consolas, monospace; }
 @media (max-width: 420px) { .engine { display: none; } }
+
+/* teach a robot */
+.card-plain { background: var(--sheet); border: 1.5px solid var(--rule); border-radius: var(--radius-m); padding: 18px; }
+pre.code { background: #16171a; color: #f4f1ea; border-radius: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.5; overflow-x: auto; white-space: pre; }
+pre.code span { color: #f5b800; }
+.rsteps { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.rsteps > li { border-left: 4px solid #f5b800; padding: 4px 0 4px 14px; display: grid; gap: 6px; }
+.rsteps .title { font-weight: 700; }
+.ractions { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 15px; }
+.skill { display: inline-block; min-width: 64px; text-align: center; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: #ece8dd; color: #3b3a36; }
+.skill.s-pick, .skill.s-place, .skill.s-hold { background: #e3ecfb; color: #1f4fa8; }
+.skill.s-insert, .skill.s-screw, .skill.s-tighten, .skill.s-connect { background: #fdf0c8; color: #7a5600; }
+.skill.s-align, .skill.s-rotate, .skill.s-press { background: #eee6fb; color: #5b3aa0; }
+.skill.s-inspect { background: #dff3e4; color: #1d6b35; }
+.tag.human { background: #fde7e7; color: #a12a2a; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

@@ -23,7 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import UnidentifiedImageError
 from pydantic import BaseModel
 
-from . import animation, car, devices, images as imgs, insights, lessons, links, mock, passport, sample, sample_device, training
+from . import (animation, car, devices, images as imgs, insights, lessons, links, mock, passport, robot, sample,
+               sample_device, training)
 from .accounts import (AUTH_COOKIE, DEVICE_COOKIE, WS_COOKIE, Identity, RateLimiter, check_password, hash_password,
                        new_device_id, new_token)
 from .config import get_settings
@@ -1008,6 +1009,54 @@ async def passport_csv(request: Request):
 async def robot_data(request: Request):
     data = passport.robot_export(S.store, visible_sessions(request))
     return JSONResponse(data, headers={"Content-Disposition": 'attachment; filename="showme-episodes.json"'})
+
+
+# ---------------------------------------------------------------- teach a robot
+
+@app.get("/api/manuals/{mid}/robot-plan")
+async def get_robot_plan(mid: str, request: Request, refresh: bool = False):
+    """The manual as a robot task plan: primitives per step, each step's success check, steps for a person."""
+    m = ready_manual(mid, request)
+    if refresh or robot.cached_plan(S.store, mid) is None:
+        limit(request)
+    return await robot.robot_plan(S.store, S.muse, S.settings, mid, m["plan"], refresh=refresh)
+
+
+@app.get("/api/robot/summary")
+async def robot_summary(request: Request):
+    return await asyncio.to_thread(robot.summary, S.store, visible_sessions(request))
+
+
+@app.get("/api/export/robot-dataset.zip")
+async def robot_dataset(request: Request):
+    data = await asyncio.to_thread(robot.dataset_zip, S.store, visible_sessions(request))
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="showme-robot-dataset.zip"'})
+
+
+@app.post("/api/robot/check")
+async def robot_check(request: Request, manual_id: str = Form(...), step: int = Form(...), attempt: int = Form(1),
+                      photo: UploadFile = File(...)):
+    """A robot's success checker: one camera frame of a step -> success true or false, and what's wrong.
+
+    The same Muse Spark check people get, so a robot policy can use it as its reward signal.
+    """
+    m = ready_manual(manual_id, request)
+    plan = m["plan"]
+    st = training.step_by_order(plan, step)
+    if st is None:
+        raise HTTPException(404, f"This manual has no step {step}.")
+    limit(request)
+    img, info = await read_photo(photo, folder=("robot", manual_id), name=f"step{step:02d}_{new_id('frm')}.jpg")
+    result = await training.check_step(img, plan, step, figure_image(plan, step), muse=S.muse, vision=S.vision,
+                                       settings=S.settings, private=False, attempt=max(1, attempt),
+                                       ctx={"manual_id": manual_id, "step": step, "robot": True},
+                                       common_mistake=insights.cached_tip(S.store, manual_id, step))
+    ok = result["verdict"] == "pass"
+    return {"success": ok, "reward": 1.0 if ok else 0.0, "verdict": result["verdict"],
+            "confidence": result["confidence"], "step": step, "success_check": st.get("done_when", ""),
+            "observed": result["observed"], "reason": result["reason"], "fix": result["fix"],
+            "next_steps": result.get("next_steps", []), "box": result.get("box"), "image": info}
 
 
 TRACE_PUBLIC = ("time", "model", "purpose", "tag", "ok", "status", "latency_ms", "images", "usage", "request_id", "error")

@@ -630,3 +630,43 @@ def test_many_people_at_once_share_one_sample(client):
     with cf.ThreadPoolExecutor(12) as ex:
         ids = list(ex.map(lambda c: c.post("/api/manuals/sample?kind=device").json()["id"], phones))
     assert len(set(ids)) == 1  # one copy, read once, for everyone
+
+
+def test_teach_a_robot_plan_dataset_and_success_checker(client):
+    import json as _json
+    import zipfile
+
+    client = other_device()  # its own phone, so earlier tests' calls don't count against its rate limit
+    mid = ready_sample(client)
+    # 1. the manual as a robot task plan, built once and cached
+    rp = client.get(f"/api/manuals/{mid}/robot-plan").json()
+    assert rp["source"] == "Muse Wonder" and len(rp["steps"]) == 5 and rp["cached"] is False
+    step3 = rp["steps"][2]
+    assert {a["skill"] for a in step3["actions"]} >= {"place", "screw", "inspect"}
+    assert step3["needs_human"] and "flush" in step3["success_check"]
+    assert client.get(f"/api/manuals/{mid}/robot-plan").json()["cached"] is True
+
+    # 2. a person's checked build becomes labelled episodes, with the correction for the mistake
+    s = client.post("/api/sessions", json={"manual_id": mid, "person": "Asha Rao"}).json()
+    for order in (1, 2, 3, 3):  # step 3 fails first in mock mode, then passes
+        client.post(f"/api/sessions/{s['id']}/steps/{order}/check", files={"photo": photo()})
+    summary = client.get("/api/robot/summary").json()
+    assert summary["episodes"] >= 1 and summary["mistakes"] >= 1 and summary["corrections"] >= 1
+    z = zipfile.ZipFile(io.BytesIO(client.get("/api/export/robot-dataset.zip").content))
+    names = z.namelist()
+    assert {"README.md", "meta/info.json", "meta/tasks.jsonl", "meta/episodes.jsonl"} <= set(names)
+    info = _json.loads(z.read("meta/info.json"))
+    assert info["format"] == "showme-robot/v1" and info["images"] == info["frames"] >= 4
+    frames = [_json.loads(line) for n in names if n.startswith("data/") for line in z.read(n).decode().splitlines()]
+    fail = next(f for f in frames if f["label"]["verdict"] == "fail")
+    assert fail["label"]["correction"] and fail["observation.image"] in names
+    tasks = [_json.loads(line) for line in z.read("meta/tasks.jsonl").decode().splitlines()]
+    assert any(t["robot_actions"] for t in tasks) and all(t["instruction"] for t in tasks)
+    assert b"Asha" not in b"".join(z.read(n) for n in names if not n.endswith(".jpg"))  # no names inside
+
+    # 3. a robot's camera frame -> success and a reward signal
+    bad = client.post("/api/robot/check", data={"manual_id": mid, "step": "3", "attempt": "1"}, files={"photo": photo()}).json()
+    assert bad["success"] is False and bad["reward"] == 0.0 and bad["fix"]
+    good = client.post("/api/robot/check", data={"manual_id": mid, "step": "3", "attempt": "2"}, files={"photo": photo()}).json()
+    assert good["success"] is True and good["reward"] == 1.0 and good["success_check"]
+    assert client.post("/api/robot/check", data={"manual_id": mid, "step": "99"}, files={"photo": photo()}).status_code == 404

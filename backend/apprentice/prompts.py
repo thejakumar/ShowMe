@@ -539,3 +539,45 @@ def anim_prompt(step: dict, parts: list[dict], earlier: list[str], has_figure: b
         "- camera: where to look from, framing the whole step.\n\n"
         f"Reply in exactly this shape:\n{json.dumps(example)}"
     )
+
+
+# ---------------------------------------------------------------- teaching a robot (Wonder)
+
+ROBOT_SYSTEM = (
+    "You turn a product's step-by-step manual into a task plan a robot arm could follow. You keep the manual's "
+    "steps and order, break each step into primitive actions, and keep the step's visible done-when condition "
+    "as the success check a camera will verify. Never invent parts, tools or steps the manual does not have. "
+    "Reply with one JSON object and nothing else."
+)
+
+
+def robot_prompt(plan: dict) -> str:
+    names = {p["label"]: p.get("name", p["label"]) for p in plan.get("parts", [])}
+    parts = "\n".join(f"- {p['label']}: {p.get('name', '')} x{p.get('quantity', 1)}" for p in plan.get("parts", [])) or "- (none listed)"
+    steps = "\n".join(
+        f"{s['order']}. {s.get('title', '')}: {s.get('instruction', '')}"
+        f" | uses: {', '.join(f'''{u.get('quantity', 1)}x {u['label']} {names.get(u['label'], '')}''' for u in s.get('parts_used', [])) or '-'}"
+        f" | done when: {s.get('done_when', '')}" + (f" | warning: {s['warning']}" if s.get("warning") else "")
+        for s in plan.get("steps", []))
+    example = {
+        "steps": [{"order": 1, "actions": [
+            {"skill": "pick", "object": "D wooden dowel", "target": "", "tool": "", "detail": "4 pieces, one at a time"},
+            {"skill": "insert", "object": "D wooden dowel", "target": "holes in the top edge of panel B",
+             "tool": "", "detail": "push until half the dowel shows"},
+            {"skill": "inspect", "object": "", "target": "", "tool": "camera", "detail": "two dowels per panel"}],
+            "success_check": "Both side panels B have two dowels standing upright in their top edge",
+            "needs_human": False, "human_reason": "", "risks": []}],
+        "tools": ["hex key F"], "notes": "Lay the panels flat on a soft surface first.",
+    }
+    return (
+        f"Product: {plan.get('product', '')}\n\nParts:\n{parts}\n\nSteps:\n{steps}\n\n"
+        "For every step, in order:\n"
+        "- actions: 2 to 8 primitives. skill is one of pick, place, insert, align, screw, tighten, press, rotate, "
+        "hold, connect, inspect. object uses the manual's part label and name. target says where it goes. detail "
+        "gives orientation, count or force that matters (\"holes facing inward\", \"hand-tight\"). End with inspect.\n"
+        "- success_check: what a camera must see when the step is done; reuse the done-when.\n"
+        "- needs_human: true when the step needs two people, fine judgement, or carries a warning a robot can't "
+        "follow safely; say why in human_reason. risks: short phrases.\n"
+        "tools: tools the manual names. notes: one sentence of setup advice.\n\n"
+        f"Reply in exactly this shape:\n{json.dumps(example)}"
+    )

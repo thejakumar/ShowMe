@@ -470,7 +470,52 @@ def _where(plan: dict | None = None, **_: Any) -> dict:
             "confidence": 0.8}
 
 
+def _robot(plan: dict | None = None, **_: Any) -> dict:
+    """A hand-written robot plan for the sample stool; any other manual gets the rule-based outline."""
+    from . import robot
+    plan = plan or sample.sample_plan()
+    if plan.get("product") != "Birch step stool":
+        return robot.outline(plan)
+    A = lambda skill, obj="", target="", tool="", detail="": {"skill": skill, "object": obj, "target": target, "tool": tool, "detail": detail}  # noqa: E731
+    return {"tools": ["F hex key"], "notes": "Work on a soft, flat surface so the birch faces don't scratch.", "steps": [
+        {"order": 1, "actions": [A("pick", "B side panel", detail="lay flat, top edge toward the robot"),
+                                 A("pick", "D wooden dowel", detail="4 pieces, one at a time"),
+                                 A("insert", "D wooden dowel", "2 holes in the top edge of each panel B", detail="push until about half shows"),
+                                 A("inspect", tool="camera", detail="two dowels upright per panel")],
+         "success_check": "Each side panel B has two dowels standing upright in its top edge, about half of each showing",
+         "needs_human": False, "human_reason": "", "risks": []},
+        {"order": 2, "actions": [A("rotate", "B side panel", detail="inner face up"),
+                                 A("insert", "D wooden dowel", "2 holes in the inner face of each panel B", detail="4 pieces"),
+                                 A("align", "B side panel", "each other", detail="inner faces pointing toward each other"),
+                                 A("inspect", tool="camera")],
+         "success_check": "Both side panels B have two dowels in their inner faces, and the inner faces point toward each other",
+         "needs_human": False, "human_reason": "", "risks": []},
+        {"order": 3, "actions": [A("hold", "B side panels", detail="upright, holes facing inward"),
+                                 A("place", "C back rail", "dowels between the two panels B"),
+                                 A("screw", "E screw", "rail C through panels B", "F hex key", "4 screws, snug, not tight"),
+                                 A("inspect", tool="camera", detail="rail flush, holes inward")],
+         "success_check": "Rail C sits flush between both side panels with each panel's pre-drilled holes facing inward",
+         "needs_human": True, "human_reason": "Holding both panels upright while fitting the rail needs a second hand or a fixture.",
+         "risks": ["panel B fitted backwards", "screws over-tightened in birch"]},
+        {"order": 4, "actions": [A("pick", "A seat"),
+                                 A("align", "A seat", "top dowels of both panels B", detail="holes facing down"),
+                                 A("press", "A seat", "dowels", detail="evenly, until flush"),
+                                 A("screw", "E screw", "seat A into panels B", "F hex key", "4 screws"),
+                                 A("inspect", tool="camera")],
+         "success_check": "Seat A sits flat on both side panels with no gap, all four screws in",
+         "needs_human": False, "human_reason": "", "risks": ["seat placed upside down"]},
+        {"order": 5, "actions": [A("pick", "F hex key", detail="tool"),
+                                 A("tighten", "E screw", tool="F hex key", detail="all 8, hand-tight then a quarter turn"),
+                                 A("place", "stool", "floor", detail="standing upright"),
+                                 A("press", "seat A corners", detail="one at a time; must not rock"),
+                                 A("inspect", tool="camera")],
+         "success_check": "The stool stands level on the floor and doesn't rock when each corner is pressed",
+         "needs_human": True, "human_reason": "The load test (up to 100 kg) should be done by a person.", "risks": []},
+    ]}
+
+
 HANDLERS = {
+    "robot_plan": _robot,
     "where_am_i": _where,
     "listing_read": _listing,
     "listing_plan": _listing_plan,

@@ -89,6 +89,20 @@ Choose a manual under **Train on a machine** or **Learn a device** (or try the s
 - **How do I…** Type, say, or tap a suggested question. Muse Wonder answers only from the manual, with page numbers, and says plainly when the manual doesn't cover it. When the answer is something to do, **Guide me through it** turns it into camera-checked steps. Each question is answered once and reused, and it shows up on the brand dashboard.
 - **First-time setup** runs the manual's setup as a guided session.
 
+### Teach a robot
+
+The same engine that checks a person's work can teach a robot the same task. **For businesses → Robotics: teach a robot** (`#/robot`):
+
+1. **Training data from real builds.** Every camera-checked step people did becomes a labelled example: the photo or live frame, the step's instruction (the language task), right or wrong, who decided (the camera or a person), and for mistakes, the correction that fixed them. **Download the robot dataset** gives a zip in a LeRobot-style layout: `meta/info.json`, `meta/tasks.jsonl`, `meta/episodes.jsonl`, `data/episode_NNNNNN.jsonl` and `images/`. No names or account details are included.
+2. **The manual as robot steps.** Muse Wonder breaks each step into robot primitives (pick, place, insert, align, screw, tighten, press, rotate, hold, connect, inspect) with the part, where it goes, the tool and the detail that matters ("holes facing inward"). Each step keeps its visible "done when" as the success check, and steps a robot shouldn't do alone are flagged "Needs a person". Built once per manual and cached. If Muse is unavailable, a simple outline from the step text is shown and labelled.
+3. **A success check for your robot.** After each step, a robot (or a simulator) sends one camera frame:
+
+   ```
+   curl http://localhost:8000/api/robot/check -F manual_id=man_... -F step=3 -F photo=@frame.jpg
+   ```
+
+   It gets back `success` (true or false), `reward` (1.0 or 0.0), what the camera saw, and the fix. It's the same Muse Spark check people get, so it can serve as a policy's reward signal or an evaluation harness.
+
 ## Settings (`.env`)
 
 | Setting | Default | Meaning |
@@ -131,6 +145,7 @@ FastAPI backend ---------------------------------------------+
   car.py       engine-bay labels, warning lights              |
   store.py     SQLite or Postgres + files in data/            |
   jobs.py      job queue: manuals, store links, 3D pre-builds |
+  robot.py     robot steps, robot dataset, success check      |
         |                                                     |
 Meta Model API: Muse Spark, Muse Wonder, SAM 3.1 -------------+
 ```
@@ -138,7 +153,7 @@ Meta Model API: Muse Spark, Muse Wonder, SAM 3.1 -------------+
 | Model | Job |
 | --- | --- |
 | **Muse Spark** | Reads every manual page (parts lists, numbered callouts, step diagrams). Finds and counts parts in photos using the manual's drawings as reference. Checks each step's after-photo against the manual's diagram and a "done when" condition. Lists objects in a room, and reads warning lights. |
-| **Muse Wonder** | Turns the whole manual into a lesson plan: steps, visible done-when checks, why each step matters, warnings, and detector prompts per part. Writes concept lessons from the objects in your room, then fact-checks them in a second pass. |
+| **Muse Wonder** | Turns the whole manual into a lesson plan: steps, visible done-when checks, why each step matters, warnings, and detector prompts per part. Writes concept lessons from the objects in your room, then fact-checks them in a second pass. Breaks each step into robot actions for **Teach a robot**. |
 | **SAM 3.1** | Part finding and outlines, via the API or privately on your own GPU (hybrid mode). |
 
 Rules the code enforces: every model reply is JSON validated against a schema (`schemas.py`), with one automatic repair attempt. Low-confidence answers ask the person. A person's confirmation is stored separately from the model's verdict.

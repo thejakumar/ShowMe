@@ -252,6 +252,51 @@ class TaskAnswer(Lenient):
         return _str_list(v, 6)
 
 
+# ---------- teaching a robot ----------
+
+class RobotAction(Lenient):
+    skill: str = "place"  # pick | place | insert | align | screw | tighten | press | rotate | hold | connect | inspect
+    object: str = ""  # part label and name, e.g. "B side panel"
+    target: str = ""  # where it goes, e.g. "dowels on panel A"
+    tool: str = ""
+    detail: str = ""  # orientation, force, count: "holes facing inward", "hand-tight"
+
+    @field_validator("skill", mode="before")
+    @classmethod
+    def _skill(cls, v):
+        return str(v or "place").strip().lower().split()[0] if str(v or "").strip() else "place"
+
+    @field_validator("object", "target", "tool", "detail", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return "" if v is None else str(v)[:160]
+
+
+class RobotStep(Lenient):
+    order: int = 0
+    actions: list[RobotAction] = Field(default_factory=list)
+    success_check: str = ""  # what a camera must see when the step is done
+    needs_human: bool = False  # a step a robot shouldn't do alone
+    human_reason: str = ""
+    risks: list[str] = Field(default_factory=list)
+
+    @field_validator("risks", mode="before")
+    @classmethod
+    def _risks(cls, v):
+        return _str_list(v, 4)
+
+
+class RobotPlan(Lenient):
+    steps: list[RobotStep] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def _tools(cls, v):
+        return _str_list(v, 8)
+
+
 # ---------- seeing the real world ----------
 
 
