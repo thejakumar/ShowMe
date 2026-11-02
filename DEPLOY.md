@@ -65,7 +65,7 @@ neon init -y --org-id <your org id> --project-id <your project id> --branch prod
 neon deploy
 ```
 
-`neon deploy` writes `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (direct) into `.env`. Restart ShowMe and the header of `/healthz` says `"database":"postgres"`. ShowMe handles Neon's specifics itself:
+`neon deploy` writes `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (direct) into `.env`. Restart ShowMe; `/healthz` then reports `"database":"postgres"`. ShowMe handles Neon's specifics itself:
 
 - Queries go through the pooled endpoint with psycopg's server-side prepared statements turned off, since Neon's pooler (PgBouncer) runs in transaction mode.
 - Schema changes run over the direct endpoint, under an advisory lock, so several servers starting at once don't collide.
