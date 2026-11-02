@@ -81,6 +81,8 @@ class Settings:
     # ---- hosting for many users
     # postgresql://user:pass@host:5432/db for many users and several servers. Empty: one SQLite file in data/.
     database_url: str = field(default_factory=lambda: _str("DATABASE_URL", ""))
+    # Optional direct (unpooled) URL for schema changes; Neon's `neon env pull` writes it next to DATABASE_URL.
+    database_url_unpooled: str = field(default_factory=lambda: _str("DATABASE_URL_UNPOOLED", ""))
     # Multi-user: brand dashboards, training records and uploads are private to each workspace, and people sign
     # in. Defaults to on with Postgres and off on a single PC (where everything is visible, as before).
     multi_user: bool = field(default_factory=lambda: _bool("MULTI_USER", bool(os.getenv("DATABASE_URL"))))

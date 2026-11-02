@@ -97,18 +97,35 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _pooled(url: str) -> bool:
+    """A Neon pooled endpoint (PgBouncer): the host carries the -pooler suffix."""
+    from urllib.parse import urlparse
+
+    return "-pooler" in (urlparse(url).hostname or "")
+
+
 class Store:
-    def __init__(self, data_dir: Path, database_url: str = "") -> None:
+    def __init__(self, data_dir: Path, database_url: str = "", migrate_url: str = "") -> None:
+        """database_url: what the app queries through (on Neon, the pooled -pooler URL).
+        migrate_url: optional direct (unpooled) URL for schema changes, e.g. Neon's DATABASE_URL_UNPOOLED."""
         self.dir = data_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.postgres = database_url.startswith(("postgres://", "postgresql://"))
+        self._migrate_url = migrate_url if migrate_url.startswith(("postgres://", "postgresql://")) else ""
         self._lock = threading.Lock()
         if self.postgres:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool
 
-            self.pool = ConnectionPool(database_url, min_size=1, max_size=10, kwargs={"row_factory": dict_row},
-                                       open=True)
+            kwargs: dict = {"row_factory": dict_row}
+            if _pooled(database_url):
+                # PgBouncer in transaction mode (Neon's -pooler endpoint): no server-side prepared statements,
+                # which psycopg would otherwise create after a query runs a few times.
+                kwargs["prepare_threshold"] = None
+            # check: a connection is tested before reuse, so connections closed while an idle Neon compute
+            # was suspended (scale to zero) are replaced instead of failing the next request.
+            self.pool = ConnectionPool(database_url, min_size=1, max_size=10, kwargs=kwargs,
+                                       check=ConnectionPool.check_connection, open=True)
         else:
             self.db = sqlite3.connect(self.dir / "apprentice.db", check_same_thread=False, timeout=30)
             self.db.row_factory = sqlite3.Row
@@ -154,6 +171,31 @@ class Store:
         return {r["name"] for r in self._all(f"PRAGMA table_info({table})")}
 
     def _migrate(self) -> None:
+        if self.postgres and self._migrate_url:
+            return self._migrate_direct()
+        self._apply_schema()
+
+    def _migrate_direct(self) -> None:
+        """Schema changes over the direct connection, one server at a time (a session advisory lock, which a
+        transaction-mode pooler can't hold)."""
+        import psycopg
+
+        with psycopg.connect(self._migrate_url, autocommit=True) as conn:
+            conn.execute("SELECT pg_advisory_lock(7310)")
+            try:
+                for sql in TABLES:
+                    conn.execute(sql)
+                for table, col, kind in COLUMNS:
+                    have = {r[0] for r in conn.execute(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,))}
+                    if col not in have:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+                for sql in INDEXES:
+                    conn.execute(sql)
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(7310)")
+
+    def _apply_schema(self) -> None:
         for sql in TABLES:
             self._exec(sql)
         for table, col, kind in COLUMNS:  # databases from earlier versions: add the column, keep every row

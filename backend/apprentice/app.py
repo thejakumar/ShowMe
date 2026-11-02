@@ -56,7 +56,7 @@ S = State()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     S.settings = get_settings()
-    S.store = Store(S.settings.data_dir, S.settings.database_url)
+    S.store = Store(S.settings.data_dir, S.settings.database_url, S.settings.database_url_unpooled)
     S.tracer = Tracer(S.settings.trace_dir)
     S.muse = MuseClient(S.settings, S.tracer, mock_responder=mock.respond)
     S.vision = Vision(S.settings, S.muse, S.tracer)

@@ -20,7 +20,7 @@ from .trace import Tracer
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     settings = get_settings()
-    store = Store(settings.data_dir, settings.database_url)
+    store = Store(settings.data_dir, settings.database_url, settings.database_url_unpooled)
     tracer = Tracer(settings.trace_dir)
     muse = MuseClient(settings, tracer, mock_responder=mock.respond)
     worker = Worker(store, muse, settings)

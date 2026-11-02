@@ -46,12 +46,32 @@ The first brand or employer creates a workspace at `/#/account`. Employees join 
 | Setting | Meaning |
 | --- | --- |
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/db`. Empty means SQLite in `data/`. |
+| `DATABASE_URL_UNPOOLED` | Optional direct connection used only for schema changes at start-up (Neon writes it). Leave empty to use `DATABASE_URL` for everything. |
 | `MULTI_USER` | `1` turns on workspaces, sign-in and per-company privacy. On by default with `DATABASE_URL`. |
 | `ALLOW_SIGNUP` | `0` stops new workspaces from being created (invite-only servers). |
 | `RUN_WORKER` | `1` runs a job worker inside each web process (one PC). Set `0` when you run separate workers. |
 | `WORKER_CONCURRENCY` | Jobs one worker runs at once (default 3). |
 | `RATE_PER_MINUTE`, `LIVE_RATE_PER_MINUTE`, `UPLOADS_PER_HOUR` | Per-person limits (defaults 30, 90, 20). Limits are counted per server process. |
 | `PUBLIC_URL` | The https address printed in QR codes. |
+
+## Using Neon for the database
+
+[Neon](https://neon.com) has a free Postgres plan that doesn't expire. From the project folder, signed in to Neon:
+
+```
+npm i -g neon@latest
+neon login
+neon init -y --org-id <your org id> --project-id <your project id> --branch production --services postgres
+neon deploy
+```
+
+`neon deploy` writes `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (direct) into `.env`. Restart ShowMe and the header of `/healthz` says `"database":"postgres"`. ShowMe handles Neon's specifics itself:
+
+- Queries go through the pooled endpoint with psycopg's server-side prepared statements turned off, since Neon's pooler (PgBouncer) runs in transaction mode.
+- Schema changes run over the direct endpoint, under an advisory lock, so several servers starting at once don't collide.
+- Every pooled connection is checked before reuse, so the first request after Neon suspends an idle database (scale to zero) gets a fresh connection instead of an error.
+
+With `DATABASE_URL` set, sign-in and workspaces turn on (`MULTI_USER=1`). Set `MULTI_USER=0` to keep the one-PC behaviour.
 
 ## Running pieces by hand (no Docker)
 
