@@ -121,6 +121,11 @@ The same engine that checks a person's work can teach a robot the same task. **F
 
 ## Host it for many people
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/thejakumar/ShowMe)
+
+Fastest way to put it online: the button deploys this repo on Render's free plan (`render.yaml`). Paste your Meta Model API key when Render asks, and ShowMe is live at an `https://….onrender.com` address, so the live camera works on any phone and QR codes point there by themselves. The free plan sleeps after 15 minutes idle (the first visit then takes about a minute) and keeps no files between restarts, so it's for demos; add a Neon database for data that stays (see [DEPLOY.md](DEPLOY.md)).
+
+
 On one PC, `run.bat` is all you need. To serve many shoppers, brands and employers at once, ShowMe runs as stateless web servers plus job workers on Postgres: `docker compose up -d --build` starts Postgres, the web app and two workers. With `DATABASE_URL` set, sign-in turns on:
 
 - **Shoppers** never sign in. Their sessions belong to their phone.

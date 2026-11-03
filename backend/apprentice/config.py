@@ -76,7 +76,8 @@ class Settings:
     max_vision_pages: int = field(default_factory=lambda: int(_str("MAX_VISION_PAGES", "24")))
     max_upload_mb: int = field(default_factory=lambda: int(_str("MAX_UPLOAD_MB", "40")))
     # Address printed in QR codes (an https tunnel or your domain). Empty: this PC's Wi-Fi address and port.
-    public_url: str = field(default_factory=lambda: _str("PUBLIC_URL", "").rstrip("/"))
+    # Render sets RENDER_EXTERNAL_URL to the service's https address, so QR codes work there with no setup.
+    public_url: str = field(default_factory=lambda: (_str("PUBLIC_URL", "") or _str("RENDER_EXTERNAL_URL", "")).rstrip("/"))
 
     # ---- hosting for many users
     # postgresql://user:pass@host:5432/db for many users and several servers. Empty: one SQLite file in data/.

@@ -1,0 +1,19 @@
+# One-click deploy on Render's free plan: https://render.com/deploy?repo=https://github.com/thejakumar/ShowMe
+# Render asks for MODEL_API_KEY when you deploy (leave it empty to run in mock mode). Everything else is set here.
+services:
+  - type: web
+    name: showme
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: MODEL_API_KEY
+        sync: false          # your Meta Model API key; entered in Render, never stored in the repo
+      - key: WEB_CONCURRENCY
+        value: "1"           # the free instance is small: one web process
+      - key: RUN_WORKER
+        value: "1"           # free Render has no background workers, so the job worker runs inside the app
+      # Optional, add in Render's Environment tab later:
+      #   DATABASE_URL / DATABASE_URL_UNPOOLED  a Neon Postgres (see DEPLOY.md), so data survives restarts
+      #   MULTI_USER=0                          keep sign-in off even with a database
