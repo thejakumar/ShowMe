@@ -11,11 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt -r requirements-server.txt
 COPY backend ./backend
 COPY manuals ./manuals
 RUN useradd --create-home showme && mkdir -p /data && chown showme /data
-USER showme
+# Starts as root only to hand a mounted disk at /data to 'showme', then runs as 'showme' (backend/start.py).
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/healthz' % __import__('os').environ.get('PORT', '8000'), timeout=4).status == 200 else 1)"
 
 # Web: several processes per container, behind a load balancer that terminates HTTPS.
-CMD ["sh", "-c", "uvicorn apprentice.app:app --app-dir backend --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-2} --proxy-headers --forwarded-allow-ips='*'"]
+ENTRYPOINT ["python", "backend/start.py"]
