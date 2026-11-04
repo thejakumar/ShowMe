@@ -310,6 +310,22 @@ IKEA_NO_MANUAL = """<html><head><script type="application/ld+json">{"@context":"
 "description":"Adjustable shelves. Assembly required.","image":["https://www.ikea.com/billy.jpg"]}</script></head><body></body></html>"""
 
 
+SEARCH_RESULTS = {
+    "B0COFFEE01": ("https://www.amazon.com/Brewline-Single-Serve-Coffee-Maker/dp/B0COFFEE01",
+                   "Amazon.com: Brewline One Single-Serve Coffee Maker, 40 oz Reservoir : Home &amp; Kitchen"),
+    "B0BREW0001": ("https://www.amazon.com/dp/B0BREW0001", "Brewline One Pod Coffee Maker - Amazon.com"),
+}
+
+
+def search_page(url: str) -> str:
+    from urllib.parse import quote
+    hits = [v for k, v in SEARCH_RESULTS.items() if k in url]
+    rows = "".join(f'<div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg={quote(u, safe="")}&amp;rut=x">{t}</a>'
+                   f'<a class="result__snippet" href="#">A single-serve pod coffee maker.</a></div>' for u, t in hits)
+    # a decoy from another shop with the same words, which must be skipped
+    return f'<html><body><div class="result"><a class="result__a" href="https://www.walmart.com/ip/123">Brewline knockoff</a></div>{rows}</body></html>'
+
+
 @pytest.fixture()
 def fake_web(client):
     import httpx
@@ -329,6 +345,8 @@ def fake_web(client):
             return httpx.Response(503, text=ROBOT, headers={"content-type": "text/html"})
         if "ikea.com" in url:
             return httpx.Response(200, text=IKEA_NO_MANUAL, headers={"content-type": "text/html"})
+        if "duckduckgo.com" in url:
+            return httpx.Response(200, text=search_page(url), headers={"content-type": "text/html"})
         return httpx.Response(404, text="no")
 
     def resolve(host):
@@ -366,21 +384,35 @@ def test_amazon_link_with_official_manual(client, fake_web):
     assert wait_any(client, short["manual_id"])["plan"]["source"]["product_id"] == "B0STOOL001"
 
 
-def test_blocked_amazon_page_uses_the_link_and_labels_the_guide(client, fake_web):
-    r = client.post("/api/links", json={"url": "https://www.amazon.com/Brewline-One-Coffee-Maker-Single/dp/B0COFFEE01"}).json()
+def test_blocked_amazon_page_looks_up_the_real_title_and_labels_the_guide(client, fake_web):
+    r = client.post("/api/links", json={"url": "https://www.amazon.com/Kitchen-Small-Appliance-Gift-Ideas/dp/B0COFFEE01"}).json()
     m = wait_any(client, r["manual_id"])
     assert m["status"] == "ready", m
     plan = m["plan"]
     assert plan["source"]["kind"] == "listing" and plan["source"]["blocked"] is True
+    assert plan["source"]["title_source"] == "search"
     assert m["use_case"] == "device" and len(plan["steps"]) == 3 and plan["needs_manual"] is False
     assert all(st["figure_url"] is None for st in plan["steps"])
     sid = client.post("/api/sessions", json={"person": "Ivy", "manual_id": m["id"]}).json()["id"]
     assert client.post(f"/api/sessions/{sid}/steps/1/check", files={"photo": photo()}).status_code == 200
-    # nothing usable in the link at all: ask for the name
-    bare = wait_any(client, client.post("/api/links", json={"url": "https://www.amazon.com/dp/B0NONAME00"}).json()["manual_id"])
-    assert bare["status"] == "error" and "Type the product name" in bare["error"]
-    named = client.post("/api/links", json={"url": "https://www.amazon.com/dp/B0NONAME00", "name": "Brewline One coffee maker"}).json()
-    assert wait_any(client, named["manual_id"])["status"] == "ready"
+    # blocked, and the search finds nothing: never guess the product from the link's words, ask for the name
+    worded = wait_any(client, client.post("/api/links", json={"url": "https://www.amazon.com/Lighted-Drawers-Shelves-Bathroom/dp/B0NONAME00"}).json()["manual_id"])
+    assert worded["status"] == "error" and "Type the product name" in worded["error"]
+    named = client.post("/api/links", json={"url": "https://www.amazon.com/dp/B0NONAME00", "name": "Quimoo vanity desk with lighted mirror"}).json()
+    done = wait_any(client, named["manual_id"])
+    assert done["status"] == "ready" and done["plan"]["source"]["title_source"] == "typed"
+    assert done["plan"]["product"].startswith("Quimoo vanity desk")
+
+
+def test_amazon_sponsored_links_and_search_titles():
+    from apprentice.links import _clean_title, _plain_url, parse_link
+    sp = parse_link("https://www.amazon.com/sspa/click?ie=UTF8&spc=MTo&url=%2FQuimoo-Lighted-Drawers-Shelves-Bathroom%2Fdp%2FB0CDP2FQJ8%2Fref%3Dsr_1_1_sspa%3Fkeywords%3Dvanity&sp_csd=d2lk")
+    assert sp.retailer == "Amazon" and sp.product_id == "B0CDP2FQJ8" and sp.key == "amazon:B0CDP2FQJ8"
+    assert _plain_url(sp) == "https://www.amazon.com/dp/B0CDP2FQJ8"
+    assert _plain_url(parse_link("https://amazon.co.uk/x/dp/B0CDP2FQJ8?th=1")) == "https://www.amazon.co.uk/dp/B0CDP2FQJ8"
+    assert _clean_title("Amazon.com: Quimoo Large Vanity Desk with LED Lighted Mirror : Home &amp; Kitchen", "Amazon") == \
+        "Quimoo Large Vanity Desk with LED Lighted Mirror"
+    assert _clean_title("BILLY Bookcase, white - IKEA US", "IKEA") == "BILLY Bookcase, white"
 
 
 def test_ikea_without_manual_gives_preparation_only(client, fake_web):
@@ -443,7 +475,18 @@ def test_short_link_name_and_mobile_retry(client, fake_web):
     links.TRANSPORT = httpx.MockTransport(always_blocked)
     r = client.post("/api/links", json={"url": "https://a.co/d/0iUSuCRw"}).json()
     m = wait_any(client, r["manual_id"])
+    assert m["status"] == "error" and "Type the product name" in m["error"], m  # no title anywhere: ask
+
+    def blocked_but_searchable(request):
+        if "duckduckgo.com" in str(request.url):
+            return httpx.Response(200, text=search_page(str(request.url)), headers={"content-type": "text/html"})
+        return always_blocked(request)
+
+    links.TRANSPORT = httpx.MockTransport(blocked_but_searchable)
+    r = client.post("/api/links", json={"url": "https://a.co/d/0iUSuCRw"}).json()
+    m = wait_any(client, r["manual_id"])
     assert m["status"] == "ready" and m["plan"]["source"]["product_id"] == "B0BREW0001", m
+    assert m["plan"]["product"] == "Brewline One coffee maker" and m["plan"]["source"]["title_source"] == "search"
 
 
 def test_where_am_i_picks_up_midway(client):

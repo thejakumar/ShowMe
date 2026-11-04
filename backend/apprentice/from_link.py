@@ -1,7 +1,8 @@
 """Store link -> guide. Runs in the background after someone pastes or scans a product link.
 
-1. Read the page (links.fetch_listing). Stores that block page reads still leave the product id and the
-   name in the URL; the person can also type the name.
+1. Read the page (links.fetch_listing) like a browser would. If the store still blocks it, the product id is
+   looked up to find the real title; failing that, the person is asked to type the name. The words in the link's
+   address are only a hint: they are search keywords and often name the wrong product.
 2. Muse Spark says what the product is and which kind of guide it needs (assembly, device, machine).
 3. If the page links an official manual PDF, that manual is read like any upload: the full, exact guide.
 4. If not, Muse Wonder writes a general setup guide from the listing, clearly labeled as such. For
@@ -31,10 +32,12 @@ async def build_from_link(manual_id: str, link: links.Link, typed_name: str, *, 
         listing = await links.fetch_listing(link)
         hint = link.name_hint or listing.name_hint
         text = listing.as_text(hint, typed_name)
-        if not (listing.title or hint or typed_name or listing.manual_links):
-            why = ("The store blocked ShowMe from reading the page" if listing.blocked
+        if not (listing.title or typed_name or listing.manual_links):
+            # The words in a store link are search keywords ("Quimoo Lighted Drawers Shelves Bathroom" for a vanity
+            # desk), not the product's name. Guessing from them gives a guide for the wrong product, so ask instead.
+            why = (f"{listing.retailer or 'The store'} blocked ShowMe from reading the page" if listing.blocked
                    else listing.error or "The page had no product details")
-            raise MuseError(f"{why}. Type the product name (brand and model) and try again.")
+            raise MuseError(f"{why}. Type the product name (brand and model, as shown on the store page) and try again.")
         store.path("manuals", manual_id, "listing.txt").write_text(text)
 
         store.update_manual(manual_id, progress="Working out what the product is")
@@ -47,7 +50,8 @@ async def build_from_link(manual_id: str, link: links.Link, typed_name: str, *, 
         product = (info.product or typed_name or listing.title or hint or "Product")[:120]
         source = {"kind": "listing", "url": listing.final_url or link.url, "retailer": listing.retailer or link.retailer,
                   "product_id": listing.product_id or link.product_id, "image": listing.image,
-                  "blocked": listing.blocked, "manual_url": None, "brand": info.brand, "model": info.model}
+                  "blocked": listing.blocked, "manual_url": None, "brand": info.brand, "model": info.model,
+                  "title_source": "typed" if typed_name else listing.title_source}
         store.update_manual(manual_id, title=product, use_case=kind)
 
         for m in listing.manual_links[:3]:

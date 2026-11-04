@@ -6,8 +6,11 @@ page itself: title, brand, model, feature bullets, JSON-LD product data, and lin
 
 Safety: only http(s) on ports 80/443, only public addresses (never this PC or the local network, also
 after every redirect), and size limits on everything downloaded. Many stores block automated page
-reads (Amazon shows a "Robot Check"); that is detected and reported, and the URL alone still gives
-the product id and usually its name.
+reads (Amazon shows a "Robot Check"), mostly by spotting that the request doesn't come from a real
+browser. So pages are fetched with a browser's network fingerprint (curl_cffi) when it is installed,
+Amazon links are read at their plain /dp/ address, and if the store still blocks the read, the product id
+is looked up on a search engine to get the product's real title. A blocked read never silently turns the
+link's address words into the product name: those words are search keywords, not the product's name.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
 from typing import Callable, Optional
-from urllib.parse import parse_qs, unquote, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -84,14 +87,18 @@ class Listing:
     manual_links: list[dict] = field(default_factory=list)
     blocked: bool = False
     error: str = ""
-    name_hint: str = ""  # the product name in the page's real address (short links redirect to it)
+    name_hint: str = ""  # the words in the page's real address (short links redirect to it)
+    title_source: str = ""  # "page" (read from the product page) or "search" (looked up by product id)
 
     def as_text(self, name_hint: str = "", typed_name: str = "") -> str:
         parts = [f"Store: {self.retailer or 'unknown'}", f"Link: {self.final_url or self.url}"]
         if self.product_id:
             parts.append(f"Product id: {self.product_id}")
-        for label, value in (("Name typed by the person", typed_name), ("Title", self.title), ("Brand", self.brand),
-                             ("Model", self.model), ("Name from the link", name_hint)):
+        title_label = "Title (found by searching the product id; the store blocked the page)" \
+            if self.title_source == "search" else "Title"
+        for label, value in (("Name typed by the person", typed_name), (title_label, self.title), ("Brand", self.brand),
+                             ("Model", self.model),
+                             ("Words in the link's address (search keywords, often NOT the product's name)", name_hint)):
             if value:
                 parts.append(f"{label}: {value}")
         if self.bullets:
@@ -127,6 +134,11 @@ def parse_link(raw: str) -> Link:
     retailer = next((name for pat, name in RETAILERS if re.search(pat, host)), "")
     path = u.path or "/"
     query = parse_qs(u.query)
+    if retailer == "Amazon" and re.match(r"^/(sspa/click|gp/slredirect)", path) and query.get("url"):
+        # sponsored results wrap the real product page: /sspa/click?...&url=%2FName%2Fdp%2FB0...
+        inner = urljoin(f"{u.scheme}://{u.netloc}/", unquote(query["url"][0]))
+        if urlparse(inner).hostname == u.hostname:
+            return parse_link(inner)
     pid, hint = "", ""
     if retailer == "Amazon":
         m = re.search(r"/(?:dp|gp/product|gp/aw/d|product|exec/obidos/ASIN)/([A-Z0-9]{10})(?:[/?]|$)", path + "/", re.I)
@@ -235,6 +247,67 @@ MOBILE = {
 
 def _client(headers: Optional[dict] = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=TRANSPORT, timeout=20, follow_redirects=False, headers=headers or DESKTOP)
+
+
+try:  # a real browser's TLS and HTTP/2 fingerprint: what stores like Amazon check before serving a page
+    from curl_cffi.requests import AsyncSession as _BrowserSession
+except ImportError:  # pragma: no cover - plain httpx still works for most shops
+    _BrowserSession = None
+
+BROWSERS = {"desktop": "chrome", "mobile": "safari18_0_ios"}
+
+
+@dataclass
+class _Reply:
+    status_code: int
+    headers: dict
+    encoding: Optional[str] = None
+
+    @property
+    def is_redirect(self) -> bool:
+        return self.status_code in (301, 302, 303, 307, 308)
+
+
+async def _browser_get(url: str, limit: int, kind: str = "desktop") -> tuple[_Reply, bytes, str]:
+    """GET like a real browser would, following redirects by hand so every hop is checked."""
+    async with _BrowserSession(impersonate=BROWSERS[kind], timeout=20) as s:
+        for _ in range(MAX_REDIRECTS + 1):
+            await _check_public(url)
+            r = await s.request("GET", url, allow_redirects=False, stream=True,
+                                headers={"Accept-Language": "en-US,en;q=0.9"})
+            try:
+                headers = {k.lower(): v for k, v in r.headers.items()}
+                if r.status_code in (301, 302, 303, 307, 308) and headers.get("location"):
+                    url = urljoin(url, headers["location"])
+                    continue
+                body = bytearray()
+                async for chunk in r.aiter_content():
+                    body.extend(chunk)
+                    if len(body) > limit:
+                        raise LinkError("That file is too large to read.")
+            finally:
+                await r.aclose()
+            m = re.search(r"charset=([\w-]+)", headers.get("content-type", ""))
+            return _Reply(r.status_code, headers, m.group(1) if m else None), bytes(body), url
+    raise LinkError("The link redirected too many times.")
+
+
+def _use_browser() -> bool:
+    return _BrowserSession is not None and TRANSPORT is None  # tests use a fake network through httpx
+
+
+async def fetch(url: str, limit: int, kind: str = "desktop") -> tuple[object, bytes, str]:
+    """One page or file. Returns (reply with .status_code and .headers, body, final url)."""
+    if _use_browser():
+        try:
+            return await _browser_get(url, limit, kind)
+        except LinkError:
+            raise
+        except Exception:  # noqa: BLE001 - a curl error: try once more with plain httpx below
+            pass
+    async with _client(DESKTOP if kind == "desktop" else MOBILE) as client:
+        r, body, final = await _get(client, url, limit)
+    return r, body, final
 
 
 # ---------------------------------------------------------------- reading the page
@@ -401,29 +474,42 @@ def read_page(html: str, url: str) -> dict:
             "image": image if str(image).startswith("http") else "", "manual_links": manuals[:8], "blocked": blocked}
 
 
+def _plain_url(link: Link) -> str:
+    """Amazon serves its plain /dp/ address more willingly than tracking links (ref=, sspa, keywords)."""
+    if link.retailer == "Amazon" and link.product_id and not link.short:
+        u = urlparse(link.url)
+        host = u.hostname or "www.amazon.com"
+        return f"https://{host if host.startswith('www.') else 'www.' + host}/dp/{link.product_id}"
+    return link.url
+
+
 async def fetch_listing(link: Link) -> Listing:
-    out = await _fetch_once(link, DESKTOP)
+    out = await _fetch_once(link, "desktop")
     if out.blocked and not out.manual_links:
-        retry = await _fetch_once(link, MOBILE)
+        retry = await _fetch_once(link, "mobile")
         if not retry.blocked or retry.title:
             return retry
         out.name_hint = out.name_hint or retry.name_hint
         out.product_id = out.product_id or retry.product_id
+    if not out.title and out.product_id:  # still blocked: find the product's real title by its id
+        found = await lookup_title(out.retailer or link.retailer, out.product_id)
+        if found:
+            out.title, out.description = found["title"], out.description or found["snippet"]
+            out.title_source = "search"
     return out
 
 
-async def _fetch_once(link: Link, headers: dict) -> Listing:
+async def _fetch_once(link: Link, kind: str) -> Listing:
     out = Listing(url=link.url, retailer=link.retailer, product_id=link.product_id, name_hint=link.name_hint)
-    async with _client(headers) as client:
-        try:
-            r, body, final = await _get(client, link.url, MAX_HTML)
-        except LinkError:
-            raise
-        except httpx.HTTPError as exc:
-            out.error = f"Couldn't reach the store ({type(exc).__name__})."
-            return out
-    out.final_url = final
-    if final != link.url:  # a short link: the real product page says which product it is
+    try:
+        r, body, final = await fetch(_plain_url(link), MAX_HTML, kind)
+    except LinkError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - network trouble is reported, not fatal
+        out.error = f"Couldn't reach the store ({type(exc).__name__})."
+        return out
+    out.final_url = link.url if final == _plain_url(link) else final
+    if final != _plain_url(link):  # a short link: the real product page says which product it is
         real = parse_link(final)
         out.retailer = real.retailer or out.retailer
         out.product_id = real.product_id or out.product_id
@@ -435,7 +521,7 @@ async def _fetch_once(link: Link, headers: dict) -> Listing:
     if r.status_code >= 400 and r.status_code not in (403, 503):
         out.error = f"The store answered {r.status_code}."
         return out
-    html = body.decode(r.encoding or "utf-8", errors="replace")
+    html = body.decode(getattr(r, "encoding", None) or "utf-8", errors="replace")
     data = read_page(html, final)
     if data["blocked"]:  # a "Robot Check" page: its title and text are about the wall, not the product
         data.update(title="", brand="", model="", bullets=[], description="", image="")
@@ -443,12 +529,69 @@ async def _fetch_once(link: Link, headers: dict) -> Listing:
         setattr(out, k, v)
     if r.status_code in (403, 503) and not out.title:
         out.blocked = True
+    if out.title:
+        out.title_source = "page"
     return out
 
 
+# ---------------------------------------------------------------- when the store blocks: look the id up
+
+SEARCHES = [
+    ("https://html.duckduckgo.com/html/?q={q}", re.compile(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.S),
+     re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)),
+    ("https://www.bing.com/search?q={q}&setlang=en-US", re.compile(r'<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>(.*?)</a></h2>', re.S),
+     re.compile(r'<p[^>]*class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', re.S)),
+]
+RETAILER_HOST = {"Amazon": "amazon.", "IKEA": "ikea.", "Walmart": "walmart.", "Flipkart": "flipkart.",
+                 "Best Buy": "bestbuy.", "Target": "target.", "Wayfair": "wayfair.", "eBay": "ebay."}
+
+
+def _clean_title(t: str, retailer: str) -> str:
+    t = " ".join(re.sub(r"<[^>]+>", "", unescape(t)).split())
+    t = re.sub(r"^(amazon\.[a-z.]+|www\.amazon\.[a-z.]+)\s*:\s*", "", t, flags=re.I)
+    t = re.sub(r"\s*[:|\-–]\s*(amazon\.[a-z.]+.*|" + re.escape(retailer) + r".*)$", "", t, flags=re.I) if retailer else t
+    t = re.sub(r"\s*:\s*(Home & Kitchen|Tools & Home Improvement|Electronics|Office Products|Toys & Games|"
+               r"Sports & Outdoors|Patio, Lawn & Garden|Automotive|Baby|Appliances|Industrial & Scientific)\s*$", "", t)
+    return t.strip(" -|:")
+
+
+def parse_search(html: str, pattern: re.Pattern, snippet: re.Pattern, retailer: str, product_id: str) -> Optional[dict]:
+    want = RETAILER_HOST.get(retailer, "")
+    snippets = snippet.findall(html)
+    for i, (href, title) in enumerate(pattern.findall(html)):
+        target = unquote(parse_qs(urlparse(unescape(href)).query).get("uddg", [unescape(href)])[0])
+        host = (urlparse(target).hostname or "").lower()
+        if want and want not in host:
+            continue
+        if product_id and product_id.lower() not in target.lower() and product_id.lower() not in title.lower():
+            continue
+        name = _clean_title(title, retailer)
+        if len(name) >= 8 and not BOT_WALL.search(name):
+            snip = " ".join(re.sub(r"<[^>]+>", "", unescape(snippets[i] if i < len(snippets) else "")).split())
+            return {"title": name[:300], "snippet": snip[:600], "url": target}
+    return None
+
+
+async def lookup_title(retailer: str, product_id: str) -> Optional[dict]:
+    """The product's real title from a search engine, matched on the store and the exact product id."""
+    if not product_id:
+        return None
+    q = quote_plus(f"{product_id} {retailer}".strip())
+    for url, pattern, snippet in SEARCHES:
+        try:
+            r, body, _ = await fetch(url.format(q=q), MAX_HTML)
+        except Exception:  # noqa: BLE001 - a search engine being down just means no title
+            continue
+        if r.status_code >= 400:
+            continue
+        found = parse_search(body.decode("utf-8", errors="replace"), pattern, snippet, retailer, product_id)
+        if found:
+            return found
+    return None
+
+
 async def download_pdf(url: str) -> bytes:
-    async with _client() as client:
-        r, body, _ = await _get(client, url, MAX_PDF)
+    r, body, _ = await fetch(url, MAX_PDF)
     if r.status_code >= 400 or not body.startswith(b"%PDF"):
         raise LinkError("That manual link didn't give a PDF.")
     return body

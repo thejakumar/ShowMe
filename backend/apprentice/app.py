@@ -475,6 +475,10 @@ def shared_manual(key: str, url: str, retailer: str = "") -> Optional[dict]:
     if not known:
         return None
     m = S.store.manual(known["manual_id"])
+    if m and m["status"] == "ready" and isinstance(m.get("plan"), dict):
+        src = m["plan"].get("source") or {}
+        if src.get("kind") == "listing" and src.get("blocked") and not src.get("title_source"):
+            return None  # built from the link's address alone (older versions): read the product again
     return m if m and m["status"] in {"ready", "processing"} else None
 
 

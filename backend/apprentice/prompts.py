@@ -313,7 +313,8 @@ def listing_prompt(listing_text: str) -> str:
         f"{listing_text}\n\n"
         "kind: assembly for anything the buyer has to put together (furniture, shelves, desks, bikes, grills); "
         "device for electronics and appliances the buyer sets up and uses; training for work machines and tools. "
-        "product: brand, product and model in plain words, no marketing. in_the_box: only what the text says is "
+        "product: brand, product and model in plain words, no marketing. Take the name from the typed name or the "
+        "Title; the words in the link's address are search keywords and only a last resort. in_the_box: only what the text says is "
         "included. is_product: false if this is not a single product page.\n\n"
         f"Reply in exactly this shape:\n{json.dumps(example)}"
     )

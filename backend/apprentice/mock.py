@@ -413,7 +413,7 @@ def _listing(text: str = "", **_: Any) -> dict:
     import re
 
     low = text.lower()
-    named = re.search(r"^(?:Title|Name typed by the person|Name from the link): (.+)$", text, re.M)
+    named = re.search(r"^(?:Title[^:]*|Name typed by the person|Words in the link's address[^:]*): (.+)$", text, re.M)
     if "shelf" in low or "bookcase" in low or "stool" in low or "desk" in low:
         return {"is_product": True, "product": named.group(1).split(",")[0].strip() if named else "Corner shelf",
                 "brand": "", "model": "", "kind": "assembly", "category": "furniture",
