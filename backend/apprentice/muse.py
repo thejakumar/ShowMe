@@ -111,6 +111,20 @@ class MuseClient:
         self._fallback: dict[str, str] = {}  # role -> model used after the configured one was rejected
         self._detected_style: Optional[str] = None  # set when auto mode finds chat completions missing
         self._http: Optional[httpx.AsyncClient] = None
+        self._day, self._calls_today = "", 0
+
+    def _spend_one_call(self) -> None:
+        """Counts calls to the paid API per UTC day and stops at MAX_MODEL_CALLS_PER_DAY."""
+        limit = self.s.max_model_calls_per_day
+        if limit <= 0:
+            return
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if today != self._day:
+            self._day, self._calls_today = today, 0
+        if self._calls_today >= limit:
+            raise MuseError("This ShowMe demo has used today's AI allowance. Please try again tomorrow "
+                            "(or run ShowMe on your own computer with your own key, see the README).")
+        self._calls_today += 1
 
     @property
     def http(self) -> httpx.AsyncClient:
@@ -197,6 +211,7 @@ class MuseClient:
         """POST any JSON body to the Meta Model API (used for SAM 3.1), traced like chat calls."""
         url = self.s.base_url + path
         started = time.perf_counter()
+        self._spend_one_call()
         try:
             resp = await self.http.post(url, headers=self._headers(), json=body)
             data = resp.json() if resp.content else {}
@@ -231,6 +246,7 @@ class MuseClient:
         while True:
             url, body = self._body(model, messages, effort)
             started = time.perf_counter()
+            self._spend_one_call()
             try:
                 resp = await self.http.post(url, headers=self._headers(), json=body)
             except httpx.HTTPError as exc:

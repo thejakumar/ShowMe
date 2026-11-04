@@ -182,3 +182,21 @@ def test_json_mode_off_by_default(tmp_path):
     c = make_client(tmp_path, handler)
     run(c.json(role="spark", purpose="x", system="s", text="t", schema=DetectionReply))
     assert "response_format" not in seen
+
+
+def test_daily_call_ceiling_stops_paid_calls(tmp_path):
+    calls = []
+
+    def handler(request: httpx.Request):
+        calls.append(1)
+        return reply('{"verdict": "pass", "confidence": 0.9}')
+
+    c = make_client(tmp_path, handler, max_model_calls_per_day=2)
+    for _ in range(2):
+        run(c.json(role="spark", purpose="step_check", system="s", text="t", schema=StepCheckReply))
+    with pytest.raises(MuseError, match="today's AI allowance"):
+        run(c.json(role="spark", purpose="step_check", system="s", text="t", schema=StepCheckReply))
+    assert len(calls) == 2  # the third request never reached the API
+    c._day = "2000-01-01"  # a new day resets the count
+    run(c.json(role="spark", purpose="step_check", system="s", text="t", schema=StepCheckReply))
+    assert len(calls) == 3

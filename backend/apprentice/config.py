@@ -95,6 +95,10 @@ class Settings:
     rate_per_minute: int = field(default_factory=lambda: int(_str("RATE_PER_MINUTE", "30")))
     live_rate_per_minute: int = field(default_factory=lambda: int(_str("LIVE_RATE_PER_MINUTE", "90")))
     uploads_per_hour: int = field(default_factory=lambda: int(_str("UPLOADS_PER_HOUR", "20")))
+    # A daily ceiling on calls to the Meta Model API for this server, so a busy public demo can't run up a bill.
+    # 0 = no ceiling. On Render it defaults to 1000 calls a day; set MAX_MODEL_CALLS_PER_DAY to change it.
+    max_model_calls_per_day: int = field(default_factory=lambda: int(_str(
+        "MAX_MODEL_CALLS_PER_DAY", "1000" if os.getenv("RENDER") else "0")))
 
     @property
     def private_vision(self) -> bool:
