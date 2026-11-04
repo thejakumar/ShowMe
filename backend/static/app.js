@@ -8,6 +8,7 @@ import { captureFrame, liveSupported, startLive } from "./live.js";
 import { createViewer, webxrARSupported } from "./viewer3d.js";
 import { dictate, listen, voiceSupported } from "./voice.js";
 import { parseGuideCode, readPhoto, startScanner } from "./scan.js";
+import { autoTour, startTour, stopTour } from "./tour.js";
 
 const view = document.getElementById("view");
 const cameraInput = document.getElementById("camera");
@@ -174,6 +175,7 @@ async function render() {
   if (gen !== renderGen) return;
   view.focus({ preventScroll: true });
   window.scrollTo(0, 0);
+  autoTour();
 }
 
 window.addEventListener("hashchange", render);
@@ -1887,5 +1889,10 @@ function signInPrompt(message) {
 }
 
 // ---------------------------------------------------------------- start
+
+document.getElementById("help")?.addEventListener("click", () => {
+  if (!startTour()) toast("No tips for this screen. Tap ShowMe at the top to go home.");
+});
+window.addEventListener("hashchange", stopTour);
 
 Promise.all([loadStatus(), loadMe()]).catch((e) => toast(e.message, "error")).finally(render);

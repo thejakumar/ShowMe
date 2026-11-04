@@ -554,3 +554,20 @@ pre.code span { color: #f5b800; }
 .skill.s-inspect { background: #dff3e4; color: #1d6b35; }
 .tag.human { background: #fde7e7; color: #a12a2a; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Guided tips: a spotlight on one element at a time, with a card that explains it */
+.help-btn { width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--sheet); color: var(--ink);
+  font: 800 16px/1 var(--font); cursor: pointer; flex: none; }
+.help-btn:hover { background: var(--hivis); color: var(--hivis-ink); }
+.tour-shade { position: fixed; inset: 0; background: rgba(10, 14, 13, 0.55); z-index: 1000; }
+.tour-hole { position: fixed; z-index: 1001; border-radius: var(--radius-m); pointer-events: none;
+  box-shadow: 0 0 0 4px var(--hivis), 0 0 0 9999px rgba(10, 14, 13, 0.55); transition: all 0.25s ease; }
+.tour-card { position: fixed; z-index: 1002; background: var(--sheet); color: var(--ink); border: 1.5px solid var(--ink);
+  border-radius: var(--radius-m); padding: 16px 18px; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35); transition: top 0.25s ease, left 0.25s ease; }
+.tour-card h3 { font-size: 18px; margin: 2px 0 6px; }
+.tour-card p { font-size: 15px; line-height: 1.45; color: var(--ink-2); margin: 0; }
+.tour-card .tour-count { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 2px; }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.tour-actions span { flex: 1; }
+.tour-actions .btn { padding: 8px 14px; font-size: 14px; }
+@media print { .help-btn, .tour-shade, .tour-hole, .tour-card { display: none !important; } }
